@@ -19,16 +19,15 @@
 @font-face{font-family:"Allo Round";src:url("/fonts/AlloRound.woff2?v=8efe58f7") format("woff2");font-weight:400 700;font-display:swap}
 :root{--ink:#332b29;--cream:#fff8ea;--r:36px;--font:"Allo Round",system-ui,-apple-system,"Segoe UI",sans-serif;
   /* Surface Tension tokens (shifatmasud/surface-tension src/styles/tokens.css) */
-  --pad-x:max(5vw,24px);--s2:16px;--s3:24px;--s4:40px;--s5:64px;--fs-small:12.5px}
-@media (max-width:812px){:root{--pad-x:20px}}
-@media (max-width:380px){:root{--pad-x:16px}}
+  /* one shared shell: every fixed/centred container reads the same column width and gutter */
+  --wrap-w:1200px;--pad-x:clamp(22px,4vw,48px);--s2:16px;--s3:24px;--s4:40px;--s5:64px;--fs-small:12.5px}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%;background:#121315}
 html.lenis,html.lenis body{height:auto}.lenis:not(.lenis-autoToggle).lenis-stopped{overflow:clip}.lenis [data-lenis-prevent]{overscroll-behavior:contain}.lenis.lenis-smooth iframe{pointer-events:none}.lenis.lenis-autoToggle{transition-property:overflow;transition-duration:1ms;transition-behavior:allow-discrete}
 
 body{margin:0;background:#121315;color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.2;-webkit-font-smoothing:antialiased;overflow-x:hidden;font-feature-settings:"ss01"}
 a{color:inherit}
-.wrap{max-width:1200px;margin:0 auto;padding:0 clamp(22px,4vw,48px)}
+.wrap{max-width:var(--wrap-w);margin:0 auto;padding:0 var(--pad-x)}
 
 /* ---------- the sheet: the painted scene scrolls over the dark footer (Cost of Design curtain) ---------- */
 .sheet{position:relative;z-index:1;background:#1d2430;border-radius:0 0 var(--r) var(--r);overflow:clip;clip-path:inset(0 round 0 0 var(--r) var(--r))} /* same corners as Cost of Design; clip-path also rounds the WebGL canvas layer, which overflow alone left square */
@@ -87,7 +86,7 @@ header.on-dark .mark:focus-visible,header.on-dark .pill--sound:focus-visible{out
 .slot__in{display:inline-block;transform:translate3d(0,110%,0);will-change:transform}
 .reduce .slot__in{transform:none}
 /* text is pinned like Surface Tension's fixed .slot: the beat sections only give scroll length; only the reveal moves the words */
-.beat .slot__beat{position:fixed;left:var(--pad-x);right:var(--pad-x);bottom:var(--s5);z-index:3}
+.beat .slot__beat{position:fixed;bottom:var(--s5);z-index:3;left:calc(max(0px,(100% - var(--wrap-w)) / 2) + var(--pad-x));right:calc(max(0px,(100% - var(--wrap-w)) / 2) + var(--pad-x))}
 .reduce .beat:not(.in) .slot__beat{visibility:hidden}
 @media (max-width:640px){.beat .slot__beat{bottom:var(--s4)}}
 @media (max-width:640px){.beat{padding-bottom:var(--s4)}.slot__beat{flex-direction:column;align-items:flex-start;justify-content:flex-end;gap:16px}.slot__title{font-size:clamp(34px,10.4vw,56px)}.slot__body{flex:0 0 auto;margin:0;font-size:17px;max-width:34ch}}
