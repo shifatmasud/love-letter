@@ -20,12 +20,14 @@ Sound starts only after the first tap or key press.
 |---|---|---|
 | snd/creak, snd/crackle | house | [Wooden Creak](https://freesound.org/s/377552/) by Mafon2, [fire crackles](https://freesound.org/s/563766/) by florianreichelt |
 | snd/cloth | balloon | [Cloth Flapping On A Clothesline Gently](https://freesound.org/s/330639/) by leonelmail |
-| snd/paper | letter | [Paper Fluttering](https://freesound.org/s/382654/) by bbrocer |
-| snd/rustle | plants | [Rustling foliage](https://freesound.org/s/445788/) by DDT197 |
-| snd/gust | tap on the night sky | [a gentle breeze, wind 5](https://freesound.org/s/181254/) by mario1298 |
+| snd/airpush | hover or touch on grass, monstera, pines, boughs and clouds (the only nature sound) | [light slow swoosh](https://freesound.org/s/349698/) by Mikes-MultiMedia (CC0). Cut 0.2 to 1.7 s, high-pass 110 Hz, low-pass 3.2 kHz, 90 ms fade in, 0.4 s fade out, peak -1.3 dBFS |
 
 ## UI (unchanged)
 
 | File | Use | Source |
 |---|---|---|
 | snd/star | sound button | [Starry_UI_Click_64](https://freesound.org/s/876011/) by SignatureSoundsOrg (CC0) |
+
+## Procedural (not a file)
+
+- **Letter paper:** made live in Web Audio (`paper()` in js/audio.js), Shifat's one exception to recorded sounds. A band-passed noise rustle plus random micro-crackles, after the crumple and rustle models in Andy Farnell's *Designing Sound*. Pointer speed sets loudness, crackle count and brightness; direction sets the filter sweep and pan. Low-passed at 5.5 kHz, every grain has a soft attack. Plays on the interaction channel.

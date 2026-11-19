@@ -411,7 +411,10 @@ async function build() {
   const mk = (t, n, o) => { const g = leafGeo.clone(); g.scale(1, t.userData.aspect, 1); const m = new THREE.InstancedMesh(g, cardMat(t, { cut: 0.5, ...o }), n); m.frustumCulled = false; fgGroup.add(m); return m; };
   // plant masses: few, big and simple (notes/style.md), framing the lower corners like the bracken under real pines
   const masses = [mk(tMass1, 3, { sway: 0.012, rustle: 0.0 }), mk(tMass2, 3, { sway: 0.012, rustle: 0.0 })];
-  const bough = mk(tBough, 2, { sway: 0.07, rustle: 0.06, hang: 1 }); bough.visible = false; // the hanging corner boughs are gone (Shifat: rm these)
+  // foreground pine boughs (Shifat: "I like these to be present as frame & foreground details", his ref: a dark bough hanging
+  // beside the house). Dark painted boughs hang into the top corners and down the sides, closest to the camera of anything, so they
+  // move most with tilt. Placed by screen height (like the monstera), so phone shows the same framing as desktop.
+  const NBOUGH = 4; const bough = mk(tBough, NBOUGH, { sway: 0.05, rustle: 0.05, hang: 1 });
   const bigPine = mk(tPine, 2, { sway: 0.015 }); bigPine.visible = false; // the dark framing trunks read as a different pine and crowded the top corners (Shifat)
   // long grass: one instanced draw of alpha-tested painted clumps that live in the world, not in the frame
   // only long curvy blades (Shifat): two clean painted clumps, 3 flat values, no tufts, no seed heads
@@ -456,10 +459,20 @@ async function build() {
     }
     B0.userData.frameRects = rects;
     if (B0.userData.hb) B0.userData.layoutGrass?.(B0.userData.hb); // grass needs the monstera rects, which exist only from here
-    a = at(6.5);
-    const bk = THREE.MathUtils.clamp(camera.aspect / 1.6, 0.7, 1); // the boughs sit behind the nav, so white marks read on dark needles
-    bough.setMatrixAt(0, mat(-a.Wd * 0.52, a.H / 2 + 0.02, 6.5, 0.8 * bk, -0.8 * bk, 1, 0, 0, 0.35)); tint(bough, 0, 0.9);
-    bough.setMatrixAt(1, mat(a.Wd * 0.56, a.H / 2 + 0.05, 6.4, -0.62 * bk, -0.62 * bk, 1, 0, 0, -0.3)); tint(bough, 1, 0.86);
+    // [z, phone (cx, top, h), desk (cx, top, h), flip, tone, roll]  cx/top in NDC of the resting frame, h = NDC height it hangs down.
+    // The house sits in the middle band, so the corner boughs stop well above its roof and the side boughs stay outside its width.
+    const BOU = [
+      // dark like his reference: near-silhouette needles against the lit forest (tone x 0.62 plane factor)
+      [6.8, [-0.8, 1.08, 0.5], [-0.84, 1.1, 0.78], 1, 0.6, 0.22],
+      [6.6, [0.82, 1.08, 0.44], [0.86, 1.1, 0.7], -1, 0.58, -0.2],
+      [7.2, [-1.6, 0.98, 0.85], [-1.02, 0.98, 1.25], 1, 0.5, 0.12],
+      [7.0, [1.5, 0.72, 0.75], [1.03, 0.82, 1.05], -1, 0.54, -0.14],
+    ];
+    BOU.forEach(([z, ph, dk, flip, tone, roll], i) => {
+      const [cx, top, h] = ph.map((v, k) => THREE.MathUtils.lerp(v, dk[k], fk));
+      const q = at(z), hh = h * q.H / 2, w = hh / tBough.userData.aspect;
+      bough.setMatrixAt(i, mat(cx * q.Wd / 2, top * q.H / 2, z, w * flip, -hh, 1, 0, 0, roll)); tint(bough, i, tone);
+    });
     const p = at(3.5); const nk = THREE.MathUtils.clamp((camera.aspect - 0.45) / 1.15, 0, 1); const ps = (18 / tPine.userData.aspect) * (0.72 + 0.28 * nk);
     bigPine.setMatrixAt(0, mat(-p.Wd / 2 - (0.7 + 1.3 * (1 - nk)), -p.H / 2 - 1, 3.5, ps, ps, 1)); tint(bigPine, 0, 0.66);
     bigPine.setMatrixAt(1, mat(p.Wd / 2 + (1.35 + 1.0 * (1 - nk)), -p.H / 2 - 1.2, 3.0, ps * 1.05, ps * 1.05, 1)); tint(bigPine, 1, 0.62);
@@ -570,7 +583,7 @@ async function build() {
     { obj: houseHit, hover: () => { winGlow = Math.max(winGlow, 0.5); }, tap: () => { winGlow = 1.4; smokeBoost = 2.2; Sound.play('creak', 1); setTimeout(() => Sound.play('crackle', 0.8), 220); } },
   ];
   B0.userData.tapMiss = (pt) => { // tap on the forest: fireflies scatter, leaves rustle
-    scat.copy(pt ?? V.set(0, 0.6, -2)); scatT = U.time.value; rustleKick = 1; Sound.play('rustle', 1, { pan: pt ? pt.x / 8 : 0 });
+    scat.copy(pt ?? V.set(0, 0.6, -2)); scatT = U.time.value; rustleKick = 1; Sound.air(pt ? pt.x / 8 : 0);
   };
   B0.userData.fireflyPt = (p) => { scat.copy(p); scatT = U.time.value - 0.15; };
   B0.userData.mats = { fg: [...masses.map((m) => m.material), bough.material, ...lgs.map((m) => m.material)] }; B0.userData.fg = fgGroup;
@@ -689,6 +702,7 @@ async function buildBalloon(glowT) {
     env.material.uniforms.uGlow.value = flare * 0.12;
     fg.forEach((m, i) => { m.position.x = m.userData.x + Math.sin(t * 0.07 + i * 2) * 0.15; }); // drift stays tiny so corner clouds never reach the subject
   };
+  B1.userData.tapMiss = (pt, ndc) => { Sound.air(ndc.x * 0.5); }; // the cloud sky around the balloon
   B1.userData.hits = [{ obj: hit, hover: () => { flare = Math.max(flare, 0.25); }, tap: () => { flare = 1.2; liftV += 1.6; Sound.play('cloth', 1); } }];
 }
 
@@ -717,8 +731,8 @@ async function buildLetter() {
     holder.position.y = letY + Math.sin(tt * 0.5) * 0.1;
     letter.rotation.set(-0.12 - tilt.y * 0.35 + Math.sin(tt * 0.4) * 0.03, 0.18 + tilt.x * 0.4 + Math.sin(tt * 0.33) * 0.05, 0.06 + Math.sin(tt * 0.3) * 0.02 + flut * 0.04 * Math.sin(tt * 6));
   };
-  B2.userData.hits = [{ obj: hit, hover: (pt) => { hov = 1; const l = holder.worldToLocal(pt.clone()); tiltT.set(l.x / 1.2, l.y / 1.6); }, tap: () => { flut = 1; tiltV.y += 1.5; Sound.play('paper', 1); } }];
-  B2.userData.tapMiss = (pt, ndc) => { skyMat.uniforms.uSpark.value.copy(ndc); skyMat.uniforms.uSparkT.value = 0; Sound.play('gust', 0.9); };
+  B2.userData.hits = [{ obj: hit, hover: (pt) => { hov = 1; const l = holder.worldToLocal(pt.clone()); tiltT.set(l.x / 1.2, l.y / 1.6); }, tap: () => { flut = 1; tiltV.y += 1.5; Sound.paper(900, ptrVx, ptrVy, { tap: true }); }, paper: true }];
+  B2.userData.tapMiss = (pt, ndc) => { skyMat.uniforms.uSpark.value.copy(ndc); skyMat.uniforms.uSparkT.value = 0; Sound.air(ndc.x * 0.5); };
 }
 
 // ========== resize ==========
@@ -846,8 +860,17 @@ const ptrS = new THREE.Vector2(), ptrT = new THREE.Vector2();
 let dragging = false, dragX = 0, lastHover = 0;
 canvas.style.touchAction = 'pan-y';
 function setNdc(e) { ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); }
+// pointer speed (px/s) and direction, for the paper sound and the air push
+let ptrVx = 0, ptrVy = 0, ptrSpd = 0, pmX = 0, pmY = 0, pmT = 0, lastPaperProbe = 0;
 addEventListener('pointermove', (e) => {
+  const tn = performance.now(), dtm = Math.max(8, tn - pmT);
+  if (pmT && tn - pmT < 200) { const vx = (e.clientX - pmX) / dtm * 1000, vy = (e.clientY - pmY) / dtm * 1000; ptrVx += (vx - ptrVx) * 0.5; ptrVy += (vy - ptrVy) * 0.5; ptrSpd = Math.hypot(ptrVx, ptrVy); }
+  pmX = e.clientX; pmY = e.clientY; pmT = tn;
   setNdc(e); U.ptr.value.copy(ndc);
+  // touch moving across the letter rustles it too (rate-limited probe)
+  if (e.pointerType !== 'mouse' && dragging && activeBeat() === 2 && tn - lastPaperProbe > 70 && !inFooter()) {
+    lastPaperProbe = tn; const r = hitTest(); if (r && r.h.paper) Sound.paper(ptrSpd, ptrVx, ptrVy);
+  }
   if (e.pointerType === 'mouse') ptrT.set(ndc.x, ndc.y);
   // touch: only a sideways drag tilts. Jitter root cause #2 (probe): pointerdown aimed the camera at the finger, so every
   // vertical swipe began with a camera lurch toward the touch point and an ease back.
@@ -930,7 +953,10 @@ function frame(now) {
   // hover (mouse only), throttled
   if (!coarse && now - lastHover > 80 && U.ptr.value.x < 5) {
     lastHover = now; const r = hitTest(); canvas.style.cursor = r ? 'pointer' : '';
-    if (r) r.h.hover(r.pt);
+    const moving = now - pmT < 120;
+    if (r) { r.h.hover(r.pt); if (r.h.paper && moving && ptrSpd > 80 && !inFooter()) Sound.paper(ptrSpd, ptrVx, ptrVy); }
+    // hover over nature (forest, plants, clouds: everything but the house, balloon and letter) pushes air when you sweep across it
+    else if (moving && ptrSpd > 380 && !inFooter()) Sound.air(ndc.x * 0.5);
     else if (activeBeat() === 0 && beatGroups[0].userData.fireflyPt) { ray.setFromCamera(ndc, camera); const pt = ray.ray.at(11, new THREE.Vector3()); const l = beatGroups[0].worldToLocal(pt); if (l.z > -6 && l.z < 2) beatGroups[0].userData.fireflyPt(l); }
   }
   // text in/out by beat
