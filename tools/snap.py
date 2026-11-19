@@ -26,7 +26,7 @@ async def run(p, mobile):
         await pg.evaluate('(y) => __pines.lenis.scrollTo(y * innerHeight, { immediate: true })', pos)
         await pg.wait_for_timeout(2800)
     if js:
-        r = await pg.evaluate(js, os.environ['JSARG'].split(',')) if os.environ.get('JSARG') else await pg.evaluate(js); await pg.wait_for_timeout(1500)
+        r = await pg.evaluate(js); await pg.wait_for_timeout(1500)
         if r is not None: print('js:', r)
     tag = 'phone' if mobile else 'desk'
     await pg.screenshot(path=f'{out}-{tag}.png')
