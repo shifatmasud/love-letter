@@ -41,8 +41,6 @@ function cssBezier(x1, y1, x2, y2) {
     return sy(t);
   };
 }
-var houseIn = cssBezier(...HOUSE.IN);
-var houseInOut = cssBezier(...HOUSE.INOUT);
 
 // inkButton.ts
 var reducedMQ = typeof matchMedia !== "undefined" ? matchMedia("(prefers-reduced-motion: reduce)") : null;

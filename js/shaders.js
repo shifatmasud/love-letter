@@ -29,7 +29,7 @@ function G(src) {
   return src.slice(0, i) + GRADE + src.slice(i, j) + '  gl_FragColor.rgb = grade(gl_FragColor.rgb);\n}' + src.slice(j + 1);
 }
 
-export const INST = /* glsl */ `
+const INST = /* glsl */ `
 #ifdef USE_INSTANCING
   #define IM instanceMatrix
 #else
@@ -40,7 +40,7 @@ export const INST = /* glsl */ `
 // ---------- painted cards: far layers (alpha blend) and foliage (alpha test, instanced) ----------
 export const cardVert = /* glsl */ `
 ${INST}
-uniform float uTime, uSway, uRustle, uHang, uAspect;
+uniform float uTime, uSway, uRustle, uAspect;
 uniform vec2 uPtr;
 uniform float uBend, uFog;
 varying vec2 vUv;
@@ -68,7 +68,7 @@ void main(){
   // gentle cup for real-geometry leaves (smooth, not faceted)
   p.z += uBend * (-(p.x * p.x) * 0.9 + (p.y + 0.5) * (p.y + 0.5) * -0.35);
   vec4 wp = modelMatrix * (IM * vec4(p, 1.0));
-  float w = mix(uv.y, 1.0 - uv.y, uHang); w *= w;
+  float w = uv.y * uv.y;
   float ph = wp.x * 0.7 + wp.z * 0.45 + IM[3].x * 1.3;
   wp.x += (sin(uTime * 1.05 + ph) + 0.35 * sin(uTime * 2.3 + ph * 1.7)) * uSway * w;
   wp.y += cos(uTime * 0.9 + ph) * uSway * 0.25 * w;

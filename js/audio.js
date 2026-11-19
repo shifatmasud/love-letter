@@ -132,7 +132,7 @@ function paper(speed = 600, dx = 0, dy = 0, { tap = false } = {}) {
   const dir = Math.atan2(-dy, dx); const up = Math.sin(dir), side = Math.cos(dir);
   const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null; if (pan) pan.pan.value = Math.max(-0.6, Math.min(0.6, side * 0.45));
   const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 5500; lp.Q.value = 0.5;
-  const sink = pan || lp; if (pan) { lp.connect(pan); pan.connect(tapBus); } else lp.connect(tapBus);
+  if (pan) { lp.connect(pan); pan.connect(tapBus); } else lp.connect(tapBus);
   const nb = noiseBuf();
   // 1) rustle bed: band-passed noise; the band sweeps up when you move up or right, down when you move down or left
   const dur = tap ? 0.32 : 0.14 + 0.16 * k;

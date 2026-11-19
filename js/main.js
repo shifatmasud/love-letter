@@ -4,7 +4,6 @@
 // One requestAnimationFrame drives Lenis, the scene and the render.
 import * as THREE from 'three';
 import Lenis from 'lenis';
-import { animate } from 'motion';
 import * as S from './shaders.js';
 import { Sound } from './audio.js';
 import { asset } from './assets.js';
@@ -112,7 +111,7 @@ function cardMat(map, o = {}) {
       uInkFade: { value: o.inkFade ?? 0 }, uTexel: { value: new THREE.Vector2(1 / (map.image?.width || 1024), 1 / (map.image?.height || 1024)) },
       uBright: { value: o.bright ?? 1 }, uFadeTop: { value: o.fadeTop ?? 0 }, uFadeBot: { value: o.fadeBot ?? 0 },
       uTime: U.time, uSway: { value: reduce ? 0 : (o.sway ?? 0) }, uRustle: { value: o.rustle ?? 0 },
-      uHang: { value: o.hang ?? 0 }, uFog: { value: o.fog ?? 0 }, uClearTop: { value: o.clearTop ?? 0 }, uHdr: U.hdr, uPtr: U.ptr, uAspect: U.aspect, uBend: { value: o.bend ?? 0 },
+      uFog: { value: o.fog ?? 0 }, uClearTop: { value: o.clearTop ?? 0 }, uHdr: U.hdr, uPtr: U.ptr, uAspect: U.aspect, uBend: { value: o.bend ?? 0 },
       ...(o.foot ? { uFootM: o.foot.m, uFoot: o.foot.r, uFootR: o.foot.rad } : {}),
     },
     vertexShader: S.cardVert, fragmentShader: S.cardFrag, defines: o.foot ? { FOOT: '' } : {},
@@ -162,7 +161,6 @@ const mulberry = (seed) => { let s = seed; return () => ((s = (s * 16807) % 2147
 const beatGroups = [new THREE.Group(), new THREE.Group(), new THREE.Group()];
 beatGroups.forEach((g) => root.add(g));
 // far ridges sit on root with weak parallax, so their tops drifted into the night sky of beat 3: fade them out on the way up
-const dayLayers = [];
 // beat-2 cloud cards are unlit paintings: without this they stayed day-white/beige in the night beat
 const nightCards = []; const MOON = new THREE.Color(0x6f7cb0);
 const BEAT = 16; // world units between beats
@@ -213,9 +211,9 @@ function layoutSubjects() {
 }
 
 async function build() {
-  const [tSky, tFar, tMid, tPine, tGround, tWood, tRoof, tEnd, tStone, tWin, tDoor, tMass1, tMass2, tLong, tLong2] = await Promise.all([
-    tex('sky', { scale: 1 }), tex('farpines'), tex('midpines'), tex('tallpine', { scale: 1 }), tex('ground'), tex('logwood', { repeat: true }), tex('roof', { repeat: true }),
-    tex('logend', { scale: 1 }), tex('stone', { repeat: true, scale: 1 }), tex('window', { scale: 1 }), tex('door', { scale: 1 }),
+  const [tSky, tPine, tGround, tWood, tRoof, tStone, tWin, tDoor, tMass1, tMass2, tLong, tLong2] = await Promise.all([
+    tex('sky', { scale: 1 }), tex('tallpine', { scale: 1 }), tex('ground'), tex('logwood', { repeat: true }), tex('roof', { repeat: true }),
+    tex('stone', { repeat: true, scale: 1 }), tex('window', { scale: 1 }), tex('door', { scale: 1 }),
     tex('monstera-a', { scale: 1 }), tex('monstera-b', { scale: 1 }), tex('curlgrass', { scale: 1 }), tex('curlgrass2', { scale: 1 }),
   ]);
   skyMat.uniforms.uMap.value = tSky; skyMat.uniforms.uTexAspect.value = 1 / tSky.userData.aspect;
@@ -226,8 +224,6 @@ async function build() {
 
   // ----- far painted layers (2D cards in depth) -----
   const card = (t, w, o) => { const g = new THREE.PlaneGeometry(w, w * t.userData.aspect); g.translate(0, (w * t.userData.aspect) / 2, 0); return new THREE.Mesh(g, cardMat(t, o)); };
-  // painted ridges at a believable size: mirrored tiles side by side, so wide screens are covered without blowing the cards up
-  const tiles = (t, w, n, o, x0, y, z, ro, flip0 = 1) => { const out = []; for (let i = 0; i < n; i++) { const m = card(t, w, o); const k = i - (n - 1) / 2; m.scale.x = (i % 2 ? -1 : 1) * flip0; m.position.set(x0 + k * w, y, z); m.renderOrder = ro; B0.add(m); out.push(m); } return out; };
   // every pine in the scene is the same painted pine as the ones beside the house (Shifat): the far "ridges" are rows of
   // that one card, and only scale, value and haze change with distance (aerial perspective, notes/composition.md)
   const pineRow = (z, span, n, hTop, haze, val, ro, seed, name) => {
@@ -486,7 +482,7 @@ async function build() {
     const N = NG * 2, FILL = LOW ? 120 : 160, R = LOW ? 20 : 24, RF = LOW ? 11 : 14, Cn = Math.floor((N - FILL) / (R + RF));
     const sN = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.2 / hc, sF = 1 / 70; // 1/distance at the frame bottom (rest camera, with room for the tilt) and at the far end of the ground
     const tx = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * Math.max(camera.aspect, 0.4) * 1.18;
-    const ox = -B0.position.x, tanH = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    const ox = -B0.position.x;
     for (let i = 0; i < N; i++) {
       const m = lgs[i % 2]; const j = i >> 1; const t = m === lg ? tLong : tLong2;
       const row = Math.floor(i / Cn), col = i % Cn;
@@ -536,7 +532,6 @@ async function build() {
   const houseHit = new THREE.Mesh(new THREE.BoxGeometry(W + 0.8, wallTop + ridgeH + 1.2, D + 1.8), new THREE.MeshBasicMaterial()); houseHit.visible = false; houseHit.position.y = (wallTop + ridgeH) / 2; house.add(houseHit);
 
   // ===== BEAT 0 per-frame =====
-  const ffColor = ffMat.uniforms.uColor.value;
   let winGlow = 0;
   const scat = new THREE.Vector3(); let scatT = -9;
   B0.userData.update = (t, dt) => {
@@ -596,7 +591,6 @@ let rustleKick = 0;
 async function buildBalloon(glowT) {
   const [tBal, tWick, tCl, tSea] = await Promise.all([tex('balloon'), tex('wicker', { repeat: true, scale: 1 }), tex('clouds1'), tex('cloudsea')]);
   const B1 = beatGroups[1];
-  const card = (t, w, o) => { const g = new THREE.PlaneGeometry(w, w * t.userData.aspect); g.translate(0, (w * t.userData.aspect) / 2, 0); return new THREE.Mesh(g, cardMat(t, o)); };
   // clouds behind (painted, hazed by depth)
   const [tBig, tS0, tS1, tS2, tS3] = await Promise.all(['cl-big', 'cl-s0', 'cl-s1', 'cl-s2', 'cl-s3'].map((n) => tex(n)));
   // whole clouds, centred cards of unit height; place() sizes them per screen
@@ -739,10 +733,10 @@ async function buildLetter() {
 // Jitter root cause (probe/jit.py): the stage and the beats are 100lvh tall, but P and the canvas used innerHeight,
 // which changes when the phone's URL bar slides. The scene jumped (0.42 units with no scroll) and the canvas stretched
 // for a few frames. Both now read the stage's own size, which the URL bar never changes.
-let stageW = 0, stageH = 0;
+let stageH = 0;
 function resize() {
   const w = stage.clientWidth || innerWidth, h = stage.clientHeight || innerHeight;
-  stageW = w; stageH = h;
+  stageH = h;
   camera.aspect = w / h;
   // keep a wide-lens feel on desktop, open the view up on tall phones so the subjects fit
   camera.fov = camera.aspect < 0.62 ? 56 : camera.aspect < 1 ? 48 : 40;
@@ -903,7 +897,6 @@ function inFooter() { return scrollY > sheetH() - innerHeight * 0.6; }
 
 // ========== loop ==========
 let forced = null; // test hook: hold the pointer at the tilt limit
-const navEl = document.querySelector('header'); let navDark = true;
 const PTR_X = 0.32, PTR_Y = 0.16; const ptrV = new THREE.Vector2();
 let P = 0, Psm = 0, last = performance.now(), running = true, frames = 0, slowFrames = 0, built = false;
 const stage = $('#stage');
@@ -992,7 +985,7 @@ lenis.on('scroll', theme);
 // the one loop starts now, so Lenis scrolls even while the paintings load
 requestAnimationFrame(frame);
 // everything loads behind the preloader: scroll stays locked and the hero text waits until it has slid away
-const PRE_TEX = 28; // paintings, glow, puff and shaft (counted in a test run: 29, then 28 without the bough painting)
+const PRE_TEX = 25; // paintings, glow, puff and shaft (29 in a test run, minus the bough, far ridge, mid ridge and log-end paintings)
 lenis.stop();
 pre.add(PRE_TEX + Sound.count + 1 + 3);
 const fontsP = (document.fonts ? document.fonts.ready : Promise.resolve()).catch(() => {}).then(() => pre.tick());

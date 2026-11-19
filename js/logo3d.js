@@ -27,7 +27,6 @@ const kick = () => {
   if (!window.__glDriver && !raf) raf = requestAnimationFrame(tick);   // fallback when the 3D scene loop is missing
 };
 const regoal = () => { seenN = -1; kick(); };
-const clamp1 = (v) => Math.max(-1, Math.min(1, v));
 // tilt maps to the whole hit area: its edges give the full 18 degrees
 // past the hit area it keeps leaning toward the pointer, a little less the farther away it is
 const fall = (d, h) => { const a = Math.abs(d); return Math.sign(d) * (a <= h ? a / h : Math.max(0.45, 1 - 0.55 * Math.min(1, (a - h) / 320))); };
@@ -51,7 +50,6 @@ const aimAll = () => {
 logos.forEach((L) => { L.vis = true; });
 const lio = new IntersectionObserver((es) => es.forEach((e) => { const L = logos.find((o) => o.a === e.target); if (L) { L.vis = e.isIntersecting; if (L.vis) regoal(); } }));
 logos.forEach((L) => lio.observe(L.a));
-const rest = (L) => { L.gx = L.gy = 0; kick(); };
 // cubic-bezier(0.65, 0, 0.35, 1): soft start, glides into the end
 const bez = (x1, y1, x2, y2) => {
   const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx, cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;

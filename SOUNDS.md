@@ -26,7 +26,6 @@ Sound starts only after the first tap or key press.
 
 | File | Use | Source |
 |---|---|---|
-| snd/star | sound button | [Starry_UI_Click_64](https://freesound.org/s/876011/) by SignatureSoundsOrg (CC0) |
 
 ## Procedural (not a file)
 
