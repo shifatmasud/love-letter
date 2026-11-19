@@ -594,7 +594,7 @@ async function buildBalloon(glowT) {
     nightCards.push([m, m.material.uniforms.uTint.value.clone(), night]); if (z > 0) fg.push(m);
   }
 
-  const bal = new THREE.Group(); bal.position.set(0.2, BEAT + 0.3, -4); B1.add(bal);
+  const bal = new THREE.Group(); bal.name = 'balloon'; bal.position.set(0, BEAT + 0.3, -4); B1.add(bal); // x 0: dead centre at rest
   let balY = BEAT + 0.3; onLayout(() => { bal.scale.setScalar(subjK()); bal.position.set(0, BEAT, -4); });
   centre(bal, 1, (dx, dy) => { bal.position.x += dx; balY = bal.position.y + dy; bal.position.y = balY; });
   const prof = [];
@@ -663,7 +663,7 @@ async function buildLetter() {
     vertexShader: S.letterVert, fragmentShader: S.letterFrag, side: THREE.DoubleSide,
   });
   const letter = new THREE.Mesh(geo, m);
-  const holder = new THREE.Group(); holder.position.set(0, BEAT * 2, -4); holder.add(letter); B2.add(holder);
+  const holder = new THREE.Group(); holder.name = 'letter'; holder.position.set(0, BEAT * 2, -4); holder.add(letter); B2.add(holder);
   let letY = BEAT * 2; onLayout(() => { holder.scale.setScalar(1.35 * subjK()); holder.position.set(0, BEAT * 2, -4); });
   centre(holder, 2, (dx, dy) => { holder.position.x += dx; letY = holder.position.y + dy; holder.position.y = letY; });
   letter.rotation.set(-0.12, 0.18, 0.06);

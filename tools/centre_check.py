@@ -14,7 +14,7 @@ JS='''(arg) => { const P=window.__pines, T=P.THREE, cam=P.camera; const o=P.scen
 async def run(p,size,vp):
     b=await p.chromium.launch(args=['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader'])
     pg=await (await b.new_context(viewport=vp,is_mobile=size!='desk',has_touch=size!='desk')).new_page()
-    await pg.goto(f'http://127.0.0.1:{port}/'); await pg.wait_for_function('window.__pines && window.__pines.ready',timeout=150000); await pg.wait_for_timeout(1200)
+    await pg.goto(f'http://127.0.0.1:{port}/'); await pg.wait_for_function('window.__pines && window.__pines.ready',timeout=150000); await pg.evaluate('window.__freeze=1'); await pg.wait_for_timeout(1200)
     for P,n in [(0,'L4 house'),(1,'balloon'),(2,'letter')]:
         await pg.evaluate(f'() => __pines.lenis.scrollTo({P}*document.querySelector("#stage").clientHeight,{{immediate:true}})'); await pg.wait_for_timeout(2500)
         print(size,n,await pg.evaluate(JS,n))
