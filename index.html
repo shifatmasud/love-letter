@@ -68,6 +68,8 @@ header.on-dark .mark:focus-visible,header.on-dark .pill--sound:focus-visible{out
 .scrim{content:"";position:fixed;left:0;right:0;bottom:0;height:46vh;z-index:1;background:linear-gradient(to top,rgba(10,16,14,.62),rgba(10,16,14,.28) 45%,rgba(10,16,14,0));pointer-events:none}
 .beat{position:relative;z-index:2;height:100vh;height:100lvh;display:flex;flex-direction:column;justify-content:flex-end;padding:0 var(--pad-x) var(--s5);color:var(--cream);pointer-events:none}
 .beat:first-of-type{margin-top:-100px}
+/* the letter holds for 0.8 screen more: room to read, then its text rolls out before the footer curtain opens */
+#thanks{height:180vh;height:180lvh}
 @media (max-width:620px){.beat:first-of-type{margin-top:-88px}}
 .slot__beat{position:relative;display:flex;flex-direction:row;justify-content:space-between;align-items:flex-end;gap:40px;text-shadow:0 1px 18px rgba(20,14,18,.45),0 0 2px rgba(20,14,18,.25)}
 .slot__eyebrow{position:absolute;left:0;bottom:100%;margin:0 0 var(--s3);font-size:var(--fs-small);font-weight:400;letter-spacing:.08em;text-transform:uppercase;line-height:1.45;opacity:.86}
@@ -118,21 +120,21 @@ footer .dim{color:rgba(245,243,239,.62)}
     <section class="beat" id="home" data-beat="0">
       <div class="slot__beat">
         <p class="slot__eyebrow"><span class="slot__line"><span class="slot__in">01 &mdash; The house</span></span></p>
-        <h1 class="slot__title" data-split>Where it began</h1>
+        <h1 class="slot__title" data-lines>Where it began</h1>
         <p class="slot__body" data-lines>A small log house under old pines. Smoke from the chimney, and one light left on for whoever comes back.</p>
       </div>
     </section>
     <section class="beat" id="rise" data-beat="1">
       <div class="slot__beat">
         <p class="slot__eyebrow"><span class="slot__line"><span class="slot__in">02 &mdash; The rise</span></span></p>
-        <h2 class="slot__title" data-split>Above the trees</h2>
+        <h2 class="slot__title" data-lines>Above the trees</h2>
         <p class="slot__body" data-lines>One red balloon, slow and quiet. The forest gets small. The air gets thin and kind.</p>
       </div>
     </section>
     <section class="beat" id="thanks" data-beat="2">
       <div class="slot__beat">
         <p class="slot__eyebrow"><span class="slot__line"><span class="slot__in">03 &mdash; The letter</span></span></p>
-        <h2 class="slot__title" data-split>Above the clouds</h2>
+        <h2 class="slot__title" data-lines>Above the clouds</h2>
         <p class="slot__body" data-lines>Night comes in soft and the stars wake up. One last thing was left up here for you to read.</p>
       </div>
     </section>

@@ -694,38 +694,90 @@ function resize() {
   splitLines();
 }
 
-// ========== text (Motion): eyebrow, title words, body lines ==========
+// ========== text: Surface Tension's slot reveal, ported line for line (src/dom/ui/TextLayer.tsx + ufx.ts) ==========
+// IN: each line rises from under its hard mask on cubic-bezier(0.19, 1, 0.22, 1) over 1.0 s, 75 ms apart, with a 2.5°
+// tilt that settles to 0. OUT: up and out through the top of the mask, 0.45 s ease-in-out (0.65, 0, 0.35, 1), same stagger.
+// One beat on screen at a time: the incoming beat waits until every leaving line has cleared its mask.
 const beats = [...document.querySelectorAll('.beat')];
-function splitWords(el) {
-  const words = el.textContent.trim().split(/\s+/);
-  el.innerHTML = words.map((w) => `<span class="slot__line" style="display:inline-block"><span class="slot__in">${w}</span></span>`).join(' ');
+const OUT_DUR = 0.45, IN_DUR = 1.0, STAGGER = 0.075;
+function bezier(x1, y1, x2, y2) {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx, cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const X = (t) => ((ax * t + bx) * t + cx) * t, Y = (t) => ((ay * t + by) * t + cy) * t, dX = (t) => (3 * ax * t + 2 * bx) * t + cx;
+  return (x) => { if (x <= 0) return 0; if (x >= 1) return 1; let t = x; for (let i = 0; i < 6; i++) { const d = dX(t); if (Math.abs(d) < 1e-6) break; t -= (X(t) - x) / d; } t = Math.min(1, Math.max(0, t)); return Y(t); };
 }
+const easeOut = bezier(0.19, 1, 0.22, 1), easeIn = bezier(0.65, 0, 0.35, 1);
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const tNow = () => window.__tnow ?? performance.now() / 1000; // __tnow: test hook, frames of the text timeline
+const st = beats.map(() => ({ on: false, dir: 0, t0: 0, ot0: -1, v: [], from: [], dom: [] }));
 function splitLines() {
   for (const el of document.querySelectorAll('[data-lines]')) {
     const text = el.dataset.text || (el.dataset.text = el.textContent.trim());
     el.innerHTML = text.split(/\s+/).map((w) => `<span class="w">${w}</span>`).join(' ');
     const lines = []; let top = null;
     for (const s of el.querySelectorAll('.w')) { const t = s.offsetTop; if (t !== top) { lines.push([]); top = t; } lines[lines.length - 1].push(s.textContent); }
-    const shown = el.closest('.beat').classList.contains('in');
-    el.innerHTML = lines.map((l) => `<span class="slot__line"><span class="slot__in"${shown ? ' style="transform:none"' : ''}>${l.join(' ')}</span></span>`).join('');
+    el.innerHTML = lines.map((l) => `<span class="slot__line"><span class="slot__in">${l.join(' ')}</span></span>`).join('');
   }
+  beats.forEach((b, k) => { st[k].dom = [...b.querySelectorAll('.slot__in')]; paintBeat(k, true); });
 }
-document.querySelectorAll('[data-split]').forEach(splitWords);
-const EASE = [0.22, 1, 0.36, 1];
-function showBeat(b) {
-  if (b.classList.contains('in')) return; b.classList.add('in');
-  const eb = b.querySelectorAll('.slot__eyebrow .slot__in'), tw = b.querySelectorAll('.slot__title .slot__in'), bl = b.querySelectorAll('.slot__body .slot__in');
-  if (reduce) { [...eb, ...tw, ...bl].forEach((e) => (e.style.transform = 'none')); return; }
-  animate(eb, { y: ['110%', '0%'] }, { duration: 0.9, ease: EASE });
-  tw.forEach((w, i) => animate(w, { y: ['110%', '0%'] }, { duration: 1.1, delay: 0.12 + i * 0.08, ease: EASE }));
-  bl.forEach((l, i) => animate(l, { y: ['110%', '0%'] }, { duration: 1.0, delay: 0.42 + i * 0.09, ease: EASE }));
+// v: 0 under the mask, 1 in place, 2 gone through the top. The DOM copy of the shader: shift by (1 - v) * 102% of the line
+// box, plus the tilt (tl = 1 - v): a skew of atan(0.044) and a squash of 1 / (1 + 0.035 |tl|)
+function paintLine(d, v, o) {
+  const tl = Math.max(-1, Math.min(1, 1 - v));
+  d.style.transform = `translate3d(0, ${((1 - v) * 102).toFixed(2)}%, 0) skewX(${(2.52 * tl).toFixed(3)}deg) scaleY(${(1 / (1 + 0.035 * Math.abs(tl))).toFixed(4)})`;
+  d.style.opacity = o;
 }
-function hideBeat(b) {
-  if (!b.classList.contains('in')) return; b.classList.remove('in');
-  if (reduce) return;
-  // explicit from-keyframe: re-split lines carry inline transform:none, and Motion could not read a start from it,
-  // so the first beat's body stayed on screen under the next beat's text
-  b.querySelectorAll('.slot__in').forEach((e) => animate(e, { y: ['0%', '110%'] }, { duration: 0.45, ease: [0.4, 0, 1, 1] }));
+let active = -1;
+function setActive(i) {
+  if (i === active) return;
+  const now = tNow();
+  if (active >= 0) { const s = st[active]; if (s.on) { s.from = s.dom.map((_, k) => s.v[k] ?? 0); s.ot0 = now; s.dir = -1; } }
+  let clearAt = now;
+  for (const s of st) if (s.on && s.dir < 0 && s.ot0 >= 0) clearAt = Math.max(clearAt, s.ot0 + (reduce ? 0 : OUT_DUR + STAGGER * (s.dom.length - 1)));
+  if (i >= 0) {
+    const s = st[i];
+    if (!s.on) { s.ot0 = -1; s.v = []; s.from = []; }
+    s.dir = 1; s.t0 = active >= 0 ? Math.max(now + 0.06, clearAt + 0.04) : now; s.on = true;
+  }
+  beats.forEach((b, k) => b.classList.toggle('in', k === i));
+  active = i;
+}
+// the letter's exit is tied to scroll: over the last stretch before the footer curtain opens, its lines roll up and out
+// (same curve and stagger, as a progress), so the text is always gone before the footer shows, and rolls back on the way up
+let letterOut = 0;
+function paintBeat(b, force) {
+  const s = st[b], now = tNow(), n = s.dom.length;
+  if (!s.on) { if (force) s.dom.forEach((d) => paintLine(d, 0, 0)); return; }
+  let done = true;
+  for (let i = 0; i < n; i++) {
+    let v = 0, o = 1;
+    const xin = s.dir > 0 ? (now - s.t0 - i * STAGGER) / IN_DUR : -1;
+    if (s.dir > 0 && xin >= 0) { v = reduce ? 1 : easeOut(clamp01(xin)); if (xin < 1 && !reduce) done = false; }
+    else if (s.ot0 >= 0) {
+      const f = s.from[i] ?? 0, xo = reduce ? 1 : clamp01((now - s.ot0 - i * STAGGER) / OUT_DUR);
+      v = f < 0.03 ? 0 : f >= 2 ? 2 : f + (2 - f) * easeIn(xo);
+      if (xo < 1) done = false; if (reduce && xo >= 1) o = 0;
+    } else { v = 0; if (s.dir > 0) done = false; }
+    s.v[i] = v;
+    let shown = v;
+    if (b === beats.length - 1 && s.dir > 0 && letterOut > 0) {
+      // scroll-driven roll out: line i starts STAGGER/OUT_DUR of the way later than line i-1
+      const k = STAGGER / OUT_DUR, x = clamp01(letterOut * (1 + k * (n - 1)) - i * k);
+      shown = v < 0.03 ? 0 : v + (2 - v) * easeIn(x);
+      if (reduce) o = x >= 1 ? 0 : 1;
+    }
+    paintLine(s.dom[i], shown, shown >= 2 ? 0 : o);
+  }
+  if (s.dir > 0 && done) s.ot0 = -1;
+  if (s.dir < 0 && done) { s.on = false; s.ot0 = -1; s.dom.forEach((d) => (d.style.opacity = '0')); }
+}
+function tickText(P) {
+  // which beat owns the slot: the nearest one, with a gap between beats where none does (ST's current())
+  let i = -1; for (let k = 0; k < beats.length; k++) if (Math.abs(P - k) < (active === k ? 0.5 : 0.38)) i = k;
+  // the letter: tied to scroll from 0.55 screens before the footer starts to open, done 0.08 screens before it
+  const y = lenis.animatedScroll ?? scrollY, f0 = sheetH() - innerHeight;
+  letterOut = clamp01((y - (f0 - innerHeight * 0.55)) / (innerHeight * 0.47));
+  setActive(i);
+  for (let b = 0; b < st.length; b++) paintBeat(b);
 }
 
 // ========== Lenis: one RAF for scroll + scene ==========
@@ -766,7 +818,9 @@ function tap() {
     g.userData.tapMiss(beatGroups[0].worldToLocal(pt), ndc.clone());
   }
 }
-function inFooter() { return scrollY > document.querySelector('.sheet').offsetHeight - innerHeight * 0.6; }
+const sheetEl = document.querySelector('.sheet'); let sheetHc = 0, sheetT = 0;
+function sheetH() { const t = performance.now(); if (t - sheetT > 500) { sheetHc = sheetEl.offsetHeight; sheetT = t; } return sheetHc; }
+function inFooter() { return scrollY > sheetH() - innerHeight * 0.6; }
 
 // ========== loop ==========
 let forced = null; // test hook: hold the pointer at the tilt limit
@@ -786,7 +840,9 @@ function frame(now) {
   if (!built || !running || document.hidden) return;
   const H = stageH || innerHeight;
   const y = lenis.animatedScroll ?? scrollY;
-  P = THREE.MathUtils.clamp(y / H, 0, 2.25);
+  // the scene holds on the letter through its extra stretch (2 screens to the footer start), then lifts with the curtain
+  const f0 = sheetH() - innerHeight, yS = Math.min(y, 2 * H) + Math.max(0, y - Math.max(2 * H, f0));
+  P = THREE.MathUtils.clamp(yS / H, 0, 2.25);
   Psm = P; // Lenis already eases the value; a second smoothing here would make scene and page drift
   const p = Math.min(2, Psm);
   if (!reduce) U.time.value += dt;
@@ -822,7 +878,7 @@ function frame(now) {
     else if (activeBeat() === 0 && beatGroups[0].userData.fireflyPt) { ray.setFromCamera(ndc, camera); const pt = ray.ray.at(11, new THREE.Vector3()); const l = beatGroups[0].worldToLocal(pt); if (l.z > -6 && l.z < 2) beatGroups[0].userData.fireflyPt(l); }
   }
   // text in/out by beat
-  beats.forEach((b, i) => { const d = Math.abs(P - i); if (d < 0.42) showBeat(b); else if (d > 0.62) hideBeat(b); });
+  tickText(P);
   Sound.mix(p);
   renderer.render(scene, camera);
   // adaptive: if frames stay slow on a weak device, render fewer pixels
