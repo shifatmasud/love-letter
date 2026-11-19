@@ -11,6 +11,8 @@ async def main():
         print('pages', [pg.url for pg in ctx.pages], flush=True)
         pg = None
         for q in ctx.pages:
+            if 'viewer=ll9' in q.url: pg = q
+        for q in ([] if pg else ctx.pages):
             if q.url == 'about:blank':
                 try:
                     s = await asyncio.wait_for(ctx.new_cdp_session(q), 3)
@@ -19,7 +21,7 @@ async def main():
                     if info['targetInfo']['targetId'].startswith(os.environ.get('TID', '284DCB90')): pg = q
                 except Exception as e: print('err', e, flush=True)
         if pg is None:
-            pg = await ctx.new_page()
+            print('no viewer tab', flush=True); return
         print('using', pg.url, flush=True)
         last = None
         while True:
@@ -37,7 +39,7 @@ async def main():
                 im.thumbnail((1280, 900))
                 buf = io.BytesIO(); im.save(buf, 'JPEG', quality=88)
                 d = base64.b64encode(buf.getvalue()).decode()
-                await pg.set_content(f'<title>viewer</title><body style="margin:0;background:#222;display:flex;justify-content:center"><img style="max-width:100vw;max-height:100vh;object-fit:contain" src="data:image/jpeg;base64,{d}"></body>')
+                await pg.evaluate("d => { document.title='viewer'; document.body.style.cssText='margin:0;background:#222;display:flex;justify-content:center'; document.body.innerHTML='<img style=\\'max-width:100vw;max-height:100vh;object-fit:contain\\' src=\\'data:image/jpeg;base64,'+d+'\\'>'; }", d)
                 await pg.bring_to_front()
                 print('showing', path, im.size, flush=True)
             await asyncio.sleep(0.5)

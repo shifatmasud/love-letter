@@ -45,11 +45,20 @@ void main(){
 export const cardFrag = /* glsl */ `
 uniform sampler2D uMap;
 uniform vec3 uTint, uHaze;
-uniform float uHazeAmt, uOpacity, uCut, uBright, uFadeTop, uFadeBot;
+uniform float uHazeAmt, uOpacity, uCut, uBright, uFadeTop, uFadeBot, uInkFade;
+uniform vec2 uTexel;
 varying vec2 vUv;
 varying vec3 vTint;
 void main(){
   vec4 c = texture2D(uMap, vUv);
+  // ink fades with depth: far cards lift their thin dark lines toward the paint around them (style.md)
+  if (uInkFade > 0.0) {
+    vec2 t = uTexel * 2.5;
+    vec3 m = max(max(texture2D(uMap, vUv + vec2(t.x, 0.0)).rgb, texture2D(uMap, vUv - vec2(t.x, 0.0)).rgb),
+                 max(texture2D(uMap, vUv + vec2(0.0, t.y)).rgb, texture2D(uMap, vUv - vec2(0.0, t.y)).rgb));
+    float ink = clamp((dot(m, vec3(0.333)) - dot(c.rgb, vec3(0.333))) * 4.0, 0.0, 1.0);
+    c.rgb = mix(c.rgb, m, ink * uInkFade);
+  }
   float a = c.a;
   if (uFadeBot > 0.0) a *= smoothstep(0.0, uFadeBot, vUv.y);
   if (uFadeTop > 0.0) a *= smoothstep(1.0, 1.0 - uFadeTop, vUv.y);
@@ -163,6 +172,8 @@ void main(){
   float zen = smoothstep(0.80, 0.97, y) * (1.0 - kn) * (1.0 - k1 * (1.0 - kd)); // not in the bright balloon sky, where the nav turns ink
   col = mix(col, mix(vec3(0.20, 0.33, 0.60), vec3(0.20, 0.22, 0.46), kd), zen * 0.85);
   col += brush * mix(0.05, 0.03, k2);
+  // night: only a faint, cool-rose afterglow stays low on the horizon behind the cloud sea
+  col = mix(col, vec3(0.32, 0.24, 0.33), smoothstep(0.40, 0.02, y) * kn * 0.32);
   if (uStars > 0.001) {
     vec2 g = vec2(vUv.x * uAspect, vUv.y) * 34.0;
     vec2 id = floor(g); vec2 f = fract(g) - 0.5;

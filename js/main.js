@@ -104,6 +104,7 @@ function cardMat(map, o = {}) {
     uniforms: {
       uMap: { value: map }, uTint: { value: new THREE.Color(o.tint ?? 0xffffff) }, uHaze: U.haze,
       uHazeAmt: { value: o.haze ?? 0 }, uOpacity: { value: o.opacity ?? 1 }, uCut: { value: o.cut ?? 0 },
+      uInkFade: { value: o.inkFade ?? 0 }, uTexel: { value: new THREE.Vector2(1 / (map.image?.width || 1024), 1 / (map.image?.height || 1024)) },
       uBright: { value: o.bright ?? 1 }, uFadeTop: { value: o.fadeTop ?? 0 }, uFadeBot: { value: o.fadeBot ?? 0 },
       uTime: U.time, uSway: { value: reduce ? 0 : (o.sway ?? 0) }, uRustle: { value: o.rustle ?? 0 },
       uHang: { value: o.hang ?? 0 }, uPtr: U.ptr, uAspect: U.aspect, uBend: { value: o.bend ?? 0 },
@@ -511,20 +512,20 @@ async function buildBalloon(glowT) {
     ['big', 2.5, -1.08, -1.02, 0.5, 1, 'near', 20, 0, 1, 0.7],
     ['s1', 3.0, 0.98, 0.9, 0.24, 1, 'frame', 20.5, 0, -1, 0.7],
     // between beats: one thin cloud passes through the empty middle on the way up (never over a subject)
-    ['tri', 1.0, 0.0, 0.0, 0.2, 1.5, 'near', 19, 0, 1, 0.7],
+    ['s2', 1.0, 0.0, 0.0, 0.16, 1.5, 'near', 19, 0, 1, 0.7],
     // behind the balloon on the way up: two big mid clouds so the climb feels full on wide screens too
     ['big', -30, -0.5, 0.15, 0.42, 1.5, 1.1, -14.8, 0.12, 1, 0.65],
     ['s3', -26, 0.55, 0.4, 0.3, 1.5, 1.1, -14.7, 0.12, -1, 0.65],
     // beat 2: above the clouds at night. a sea of cloud below the letter, small clouds low at the sides
     ['sea', -30, 0.0, -0.62, 0.5, 2, 1.3, -16.5, 0.08, -1, 0.6],
-    ['tri', -26, 0.0, -0.9, 0.3, 2, 1.35, -14.5, 0.05, 1, 0.6],
+    ['big', -26, 0.05, -0.92, 0.34, 2, 1.35, -14.5, 0.05, 1, 0.6],
     ['s2', -22, -0.8, -0.3, 0.14, 2, 1.35, -14.2, 0.06, -1, 0.6],
     ['s0', -21, 0.82, -0.4, 0.13, 2, 1.35, -14.1, 0.06, 1, 0.6],
     ['s3', 2.8, 1.06, -1.04, 0.36, 2, 'near', 20, 0, -1, 0.7],
   ];
   const fg = [];
   for (const [k, z, fx, fy, sh, a, kind, ro, haze, flip, night] of defs) {
-    const m = cc(CL[k], { haze, tint: 0xffffff, opacity: 1 }, flip); m.renderOrder = ro; place(m, z, fx, fy, sh, a, kind);
+    const m = cc(CL[k], { haze, tint: 0xffffff, opacity: 1, inkFade: z < 0 ? Math.min(0.85, Math.max(0, (-z - 15) / 30)) : 0, fadeBot: z < 0 && k !== 'sea' ? 0.32 : 0 }, flip); m.renderOrder = ro; place(m, z, fx, fy, sh, a, kind);
     nightCards.push([m, m.material.uniforms.uTint.value.clone(), night]); if (z > 0) fg.push(m);
   }
 

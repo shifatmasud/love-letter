@@ -24,7 +24,7 @@ DEV = {
   'desk': dict(viewport={'width': 1440, 'height': 900}, device_scale_factor=1),
 }
 
-def seams(path, thr=18, minfrac=0.6):
+def seams(path, thr=18, minfrac=float(os.environ.get('MINFRAC','0.6'))):
     a = np.array(Image.open(path).convert('RGB')).astype(int)
     d = np.abs(np.diff(a, axis=0)).sum(2)
     frac = (d > thr).mean(1)
@@ -40,7 +40,7 @@ async def run(p, size):
     pg = await ctx.new_page()
     errs = []
     pg.on('pageerror', lambda e: errs.append('PAGEERR ' + str(e)))
-    await pg.goto('http://127.0.0.1:8793/', wait_until='load')
+    await pg.goto(os.environ.get('BASE') or 'http://127.0.0.1:8793/', wait_until='load')
     await pg.wait_for_function('window.__pines && window.__pines.ready', timeout=120000)
     await pg.add_style_tag(content=('.beat, header, nav, .cue, .scrim, .vig { visibility: hidden !important } ' if DIAG else '/* */'))
     await pg.wait_for_timeout(2000)
