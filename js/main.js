@@ -11,6 +11,7 @@ import { Sound } from './audio.js';
 const $ = (s, r = document) => r.querySelector(s);
 const qs = new URLSearchParams(location.search);
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+if (reduce) document.documentElement.classList.add('reduce');
 const coarse = matchMedia('(pointer: coarse)').matches;
 const DEBUG = qs.has('debug');
 
@@ -37,7 +38,7 @@ const canvas = $('#gl');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: !LOW, alpha: false, powerPreference: 'high-performance', stencil: false });
 renderer.setPixelRatio(DPR);
 renderer.outputColorSpace = THREE.LinearSRGBColorSpace; // paintings are already graded in sRGB
-renderer.setClearColor(0xd9b98f, 1);
+renderer.setClearColor(0xa9c6e4, 1);
 renderer.sortObjects = true;
 
 const scene = new THREE.Scene();
@@ -49,9 +50,10 @@ scene.add(root);
 // ---------- palette per beat (warm light, cool shadow, haze) ----------
 const C = (h) => new THREE.Color(h);
 const PAL = [
-  { haze: C(0xd8bd96), warm: C(0xffe4b8), cool: C(0x7d84a0), ink: C(0x3a2a26), clear: C(0xd9b98f) },
-  { haze: C(0xd9c2c4), warm: C(0xffdcb6), cool: C(0x8a88ad), ink: C(0x40303a), clear: C(0xcdb8c0) },
-  { haze: C(0x3a3c60), warm: C(0xf6dcb8), cool: C(0x5a5d8a), ink: C(0x2a2236), clear: C(0x23253f) },
+  // morning (reference: blue sky, white mist, fresh greens) -> late gold above the trees -> blue night
+  { haze: C(0xd6e3ea), warm: C(0xfff0d2), cool: C(0x7890ad), ink: C(0x1f2c2a), clear: C(0xa9c6e4) },
+  { haze: C(0xe6e1ea), warm: C(0xffe2c0), cool: C(0x8790bd), ink: C(0x2a2a3e), clear: C(0x9db4dc) },
+  { haze: C(0x2a3360), warm: C(0xf6dcb8), cool: C(0x56609a), ink: C(0x1c1e34), clear: C(0x141a38) },
 ];
 const U = {
   time: { value: 0 }, sun: { value: new THREE.Vector3(0.62, 0.5, 0.42).normalize() },
@@ -144,8 +146,13 @@ function mat(x, y, z, sx, sy, sz, rx = 0, ry = 0, rz = 0) {
 }
 function vh(dist) { return 2 * dist * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)); }
 const rnd = (() => { let s = 7; return () => ((s = (s * 16807) % 2147483647) / 2147483647); })();
+const mulberry = (seed) => { let s = seed; return () => ((s = (s * 16807) % 2147483647) / 2147483647); };
 const beatGroups = [new THREE.Group(), new THREE.Group(), new THREE.Group()];
 beatGroups.forEach((g) => root.add(g));
+// far ridges sit on root with weak parallax, so their tops drifted into the night sky of beat 3: fade them out on the way up
+const dayLayers = [];
+// beat-2 cloud cards are unlit paintings: without this they stayed day-white/beige in the night beat
+const nightCards = []; const MOON = new THREE.Color(0x6f7cb0);
 const BEAT = 16; // world units between beats
 
 // ========== SKY ==========
@@ -179,31 +186,41 @@ async function build() {
   const mist1 = new THREE.Mesh(new THREE.PlaneGeometry(240, 22), new THREE.ShaderMaterial({ uniforms: { uHaze: U.haze, uOpacity: { value: 0.75 }, uTime: U.time }, vertexShader: S.plainVert, fragmentShader: S.mistFrag, transparent: true, depthWrite: false }));
   mist1.position.set(0, 0, -80); mist1.renderOrder = -19; root.add(mist1);
   const mid = card(tMid, 120, { haze: 0.14 }); mid.position.set(6, -4.5, -55); mid.renderOrder = -18; root.add(mid);
+  const mid2 = card(tMid, 110, { haze: 0.32 }); mid2.scale.x = -1; mid2.position.set(-14, -6, -68); mid2.renderOrder = -18.5; root.add(mid2);
+  dayLayers.push(far, mid, mid2);
   const mist2 = mist1.clone(); mist2.material = mist1.material.clone(); mist2.material.uniforms.uHaze = U.haze; mist2.material.uniforms.uTime = U.time; mist2.material.uniforms.uOpacity.value = 0.5;
   mist2.scale.set(0.6, 0.55, 1); mist2.position.set(0, -2.5, -40); mist2.renderOrder = -17; root.add(mist2);
 
   // ground: a painted moss floor fading into the haze
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(220, 110), new THREE.ShaderMaterial({ uniforms: { uHaze: U.haze, uA: { value: C(0x34402e) }, uB: { value: C(0x5d6a3f) } }, vertexShader: S.groundVert, fragmentShader: S.groundFrag }));
-  ground.rotation.x = -Math.PI / 2; ground.position.set(0, -0.62, -50); B0.add(ground);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(220, 120), new THREE.ShaderMaterial({ uniforms: { uHaze: U.haze, uA: { value: C(0x37562b) }, uB: { value: C(0x7b9a47) } }, vertexShader: S.groundVert, fragmentShader: S.groundFrag, depthWrite: false }));
+  ground.renderOrder = -16; // drawn like a painted backdrop: never hides the foreground plants that stand below ground level at the frame edge
+  ground.rotation.x = -Math.PI / 2; ground.position.set(0, -0.62, -50 + 5); B0.add(ground); // near edge reaches the camera plane, so no sky shows under it
 
   // tall pines: one instanced painted card, bigger than the house, some in front for depth
   const pineGeo = new THREE.PlaneGeometry(1, tPine.userData.aspect); pineGeo.translate(0, tPine.userData.aspect / 2, 0);
-  const pines = [ // x, z, height, tint, haze
+  const pines = [ // x, z, height, tint — row 1 hugs the house, rows 2-3 thicken into the haze
     [-1.6, -14, 17, 0.95], [3.4, -12, 15, 1.0], [-6.5, -11, 16, 0.92], [8.5, -16, 19, 0.9], [-11, -20, 20, 0.85], [12, -22, 21, 0.85], [0.8, -24, 20, 0.82], [-4.2, -27, 22, 0.8], [6.2, -30, 23, 0.8], [-16, -28, 22, 0.8], [17, -26, 22, 0.8],
-  ];
+    [-3.8, -9.5, 13, 1.0], [5.6, -9, 12.5, 1.0], [-8.8, -13, 17, 0.92], [10.5, -12.5, 16, 0.92], [1.4, -17.5, 18, 0.9], [-2.8, -19, 19, 0.88], [4.8, -20, 19, 0.88],
+    [-13.5, -15, 18, 0.9], [14.5, -17, 19, 0.88], [-7.5, -22, 21, 0.85], [9.6, -25, 22, 0.84], [-19, -22, 21, 0.84], [20, -21, 21, 0.84],
+    [-1.2, -31, 23, 0.8], [2.8, -34, 24, 0.78], [-9.5, -33, 24, 0.78], [12.5, -33, 24, 0.78], [-22, -32, 24, 0.78], [23, -30, 24, 0.78], [-5.5, -36, 25, 0.76], [7.8, -37, 25, 0.76],
+  ].slice(0, LOW ? 24 : 32);
   const pineMesh = new THREE.InstancedMesh(pineGeo, cardMat(tPine, { cut: 0.5, sway: 0.08, haze: 0.0 }), pines.length);
-  pines.forEach(([x, z, h, k], i) => {
-    const s = h / tPine.userData.aspect;
+  pines.forEach(([x, z, h0, k], i) => {
+    // tops stay just under the balloon's eye line (y 15.5): taller pines poked up beside the balloon in beat 2
+    // cap by distance: at beat 2 (scene 16 lower) every top must sit under the cloud line (screen y < -0.2), never beside the basket
+    const h = Math.min(h0, 15.4 - 0.2 * (10 - z) - (i % 3) * 0.5); const s = h / tPine.userData.aspect;
     pineMesh.setMatrixAt(i, mat(x, -0.9, z, s, s, 1));
-    const hz = THREE.MathUtils.clamp((-z - 10) / 26, 0, 1);
-    pineMesh.setColorAt(i, new THREE.Color().setRGB(k, k, k).lerp(PAL[0].haze, hz * 0.55));
+    const hz = THREE.MathUtils.clamp((-z - 9) / 24, 0, 1);
+    pineMesh.setColorAt(i, new THREE.Color().setRGB(k, k, k).lerp(PAL[0].haze, 0.12 + hz * 0.72)); // aerial perspective: back rows melt into the morning haze
   });
   pineMesh.frustumCulled = false; B0.add(pineMesh);
+  Object.entries({ far, mist1, mid, mid2, mist2, ground, pineMesh }).forEach(([k, m]) => (m.name = k));
 
   // light shafts behind the house (painted-style, warm, low, under the ink)
   const shaftMat = new THREE.MeshBasicMaterial({ map: shaftT, color: 0xffd8a0, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
   const shafts = new THREE.Group();
-  [[2.5, 2.2], [5.5, 3.2], [-0.5, 1.6], [8, 2.6]].forEach(([x, w], i) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, 26), shaftMat); m.position.set(x, 9, -10 - i); m.rotation.z = 0.42; m.renderOrder = 4; shafts.add(m); });
+  // 13 tall, centred at y 5: the old 26-tall shafts reached y 22 and showed as pink bars beside the balloon
+  [[2.5, 2.2], [5.5, 3.2], [-0.5, 1.6], [8, 2.6]].forEach(([x, w], i) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, 13), shaftMat); m.position.set(x, 5, -10 - i); m.rotation.z = 0.42; m.renderOrder = 4; shafts.add(m); });
   B0.add(shafts);
 
   // ----- the log house: smooth logs with notched corners, painted bark, log ends, moss roof -----
@@ -242,7 +259,7 @@ async function build() {
   // roof: two thick shingle slabs with moss (painted), soft rounded edge via bevel
   const pitch = Math.atan2(ridgeH, D / 2); const slab = Math.hypot(D / 2, ridgeH) + 0.55;
   const roofGeo = new THREE.BoxGeometry(W + 1.0, 0.16, slab, 1, 1, 1);
-  const roofMat = toonMat(tRoof, { uvT: [2.2, 1.5, 0, 0], hatch: 0.55, rim: 0.3 });
+  const roofMat = toonMat(tRoof, { uvT: [2.2, 1.5, 0, 0], hatch: 0.75, rim: 0.25, tint: 0xa89a86 }); // weathered shingles, not bright tan
   for (const s of [-1, 1]) {
     const r = new THREE.Mesh(roofGeo, roofMat);
     r.position.set(0, wallTop + ridgeH / 2 + 0.02, s * (D / 4 + 0.05));
@@ -313,13 +330,16 @@ async function build() {
   const mk = (t, n, o) => { const g = leafGeo.clone(); g.scale(1, t.userData.aspect, 1); const m = new THREE.InstancedMesh(g, cardMat(t, { cut: 0.5, ...o }), n); m.frustumCulled = false; fgGroup.add(m); return m; };
   const mon = mk(tMon, 4, { sway: 0.05, rustle: 0.07, bend: 0.35 });
   const palm = mk(tPalm, 3, { sway: 0.06, rustle: 0.08, bend: 0.15 });
-  const fern = mk(tFern, LOW ? 5 : 7, { sway: 0.05, rustle: 0.06 });
-  const grass = mk(tGrass, LOW ? 9 : 14, { sway: 0.05, rustle: 0.05 });
+  const fern = mk(tFern, LOW ? 7 : 9, { sway: 0.05, rustle: 0.06 });
+  const grass = mk(tGrass, LOW ? 44 : 64, { sway: 0.05, rustle: 0.05 });
   const bough = mk(tBough, 2, { sway: 0.07, rustle: 0.06, hang: 1 });
-  const bigPine = mk(tPine, 2, { sway: 0.015, tint: 0x6f7468 });
+  const bigPine = mk(tPine, 2, { sway: 0.015 }); // was tint 0x6f7468 x 0.8 = 35% light: read as a flat black blob
   const floor = card(tGround, 1, { cut: 0.5, tint: 0xb9b2a0 }); floor.geometry = leafGeo.clone(); floor.geometry.scale(1, tGround.userData.aspect, 1);
-  const floorMesh = new THREE.InstancedMesh(floor.geometry, floor.material, 3); floorMesh.frustumCulled = false; B0.add(floorMesh);
-  const tint = (m, i, k, h = 0) => m.setColorAt(i, new THREE.Color().setRGB(k, k, k * 0.98).lerp(PAL[0].haze, h));
+  const floorMesh = new THREE.InstancedMesh(floor.geometry, floor.material, 3); floorMesh.frustumCulled = false; // dirt cards had hard painted edges; grass + moss ground replace them
+  // plane values (see notes/composition.md): near frame ~0.55, foreground plants ~0.7, subject plane full light
+  const PLANE = { mon: 0.74, palm: 0.7, fern: 0.76, bough: 0.62, bigPine: 1 };
+  const tint = (m, i, k, h = 0) => { const v = k * (PLANE[m.name] ?? 1); m.setColorAt(i, new THREE.Color().setRGB(v, v * 1.0, v * 0.98).lerp(PAL[0].haze, h)); };
+  Object.entries({ mon, palm, fern, grass, bough, bigPine, floorMesh }).forEach(([k, m]) => (m.name = k));
   onLayout(() => {
     // positions are relative to what the camera sees at each depth, so phones keep the frame
     const at = (z) => { const d = 10 - z; const H = vh(d); return { H, Wd: H * camera.aspect, d }; };
@@ -334,13 +354,28 @@ async function build() {
     palm.setMatrixAt(1, mat(sx(-0.98), bot + 0.0, 3.2, 2.2, 2.2, 1, 0, 0.3, 0.2)); tint(palm, 1, 0.92, 0.08);
     palm.setMatrixAt(2, mat(sx(1.05), bot + 0.1, 2.6, 2.4, 2.4, 1, 0, -0.3, -0.15)); tint(palm, 2, 0.95, 0.12);
     for (let i = 0; i < fern.count; i++) { const f = -1 + (2 * i) / (fern.count - 1); const z = 3.4 - (i % 3) * 0.7; const b = at(z); fern.setMatrixAt(i, mat(f * b.Wd * 0.48, -b.H / 2 - 0.15 + (i % 2) * 0.1, z, 1.5 + (i % 3) * 0.3, 1.4, 1, 0, 0, f * -0.15)); tint(fern, i, 0.95 - (i % 3) * 0.06, 0.05 * (i % 3)); }
-    for (let i = 0; i < grass.count; i++) { const f = -1 + (2 * i) / (grass.count - 1) + (rnd() - 0.5) * 0.08; const z = 4.4 - (i % 4) * 0.9; const b = at(z); grass.setMatrixAt(i, mat(f * b.Wd * 0.5, -b.H / 2 - 0.05, z, 0.95 + rnd() * 0.3, 0.9 + rnd() * 0.3, 1, 0, 0, 0)); tint(grass, i, 1.0 - (i % 4) * 0.05, 0.05 * (i % 4)); }
+    // grass: half frames the bottom edge, half grows around the house and the path (fixed world spots, same on every screen)
+    const gr = mulberry(77); const nFront = Math.round(grass.count * 0.34), nMead = Math.round(grass.count * 0.36);
+    for (let i = 0; i < grass.count; i++) {
+      if (i < nFront) { const f = -1 + (2 * i) / (nFront - 1) + (gr() - 0.5) * 0.1; const z = 4.4 - (i % 4) * 0.9; const b = at(z); grass.setMatrixAt(i, mat(f * b.Wd * 0.52, -b.H / 2 - 0.08, z, 1.0 + gr() * 0.35, 0.95 + gr() * 0.35, 1, 0, 0, 0)); tint(grass, i, 0.7 + (i % 4) * 0.06, 0.03 * (i % 4)); }
+      else if (i < nFront + nMead) { // meadow: tufts spread over the open lawn, spread to the visible width at each depth
+        // the camera sits low (y 0, ground -0.62), so the open lawn on screen is the ground between z 1 and 6.5
+        const c = (i - nFront) % 7; const cz = 1.2 + ((c * 0.618) % 1) * 5.0; const cxf = ((c * 0.381 + 0.13) % 1) * 2 - 1;
+        const z = cz + (gr() - 0.5) * 0.9; const b = at(z); const x = cxf * b.Wd * 0.5 + (gr() - 0.5) * b.Wd * 0.16; const sc = 0.22 + gr() * 0.36;
+        grass.setMatrixAt(i, mat(x, -0.66, z, sc * 1.25, sc, 1, 0, 0, 0)); tint(grass, i, 0.97, 0.04 + (6.5 - z) * 0.02); }
+      else { const k = i - nFront - nMead, n = grass.count - nFront - nMead; const front = k % 3 === 0; const x = front ? -1.6 + gr() * 4.2 : -7 + (14 * k) / (n - 1) + (gr() - 0.5) * 1.2; const z = front ? -2.1 - gr() * 0.9 : -1.5 - gr() * 6.5; const sc = 0.75 + gr() * 0.45; grass.setMatrixAt(i, mat(x, -0.66, z, sc * 1.25, sc, 1, 0, 0, 0)); tint(grass, i, 0.94, 0.1 + (-z / 8) * 0.18); }
+    }
     a = at(6.5);
-    bough.setMatrixAt(0, mat(-a.Wd * 0.32, a.H / 2 + 0.2, 6.5, 1.6, -1.6, 1, 0, 0, 0.5)); tint(bough, 0, 0.75);
-    bough.setMatrixAt(1, mat(a.Wd * 0.42, a.H / 2 + 0.3, 6.2, -1.3, -1.3, 1, 0, 0, -0.4)); tint(bough, 1, 0.68);
-    const p = at(3.5); const ps = 18 / tPine.userData.aspect;
-    bigPine.setMatrixAt(0, mat(-p.Wd / 2 - (narrow ? 0.9 : 0.35), -p.H / 2 - 1, 3.5, ps, ps, 1)); tint(bigPine, 0, 0.62);
-    bigPine.setMatrixAt(1, mat(p.Wd / 2 + (narrow ? 1.0 : 0.5), -p.H / 2 - 1.2, 3.0, ps * 1.05, ps * 1.05, 1)); tint(bigPine, 1, 0.58);
+    // hanging boughs only tuck into the top corners (they were covering the house)
+    // boughs scale with screen width so on a phone they stay in the corners and never cover the house
+    const bk = THREE.MathUtils.clamp(camera.aspect / 1.6, 0.42, 1);
+    bough.setMatrixAt(0, mat(-a.Wd * 0.52, a.H / 2 + 0.02, 6.5, 0.8 * bk, -0.8 * bk, 1, 0, 0, 0.35)); tint(bough, 0, 0.9);
+    bough.setMatrixAt(1, mat(a.Wd * 0.56, a.H / 2 + 0.05, 6.4, -0.62 * bk, -0.62 * bk, 1, 0, 0, -0.3)); tint(bough, 1, 0.86);
+    // framing trunks: on a narrow screen they shrink a little and step further out, so only trunk and outer
+    // branches frame the edges (their low limbs were hanging across the house on phone)
+    const p = at(3.5); const nk = THREE.MathUtils.clamp((camera.aspect - 0.45) / 1.15, 0, 1); const ps = (18 / tPine.userData.aspect) * (0.72 + 0.28 * nk);
+    bigPine.setMatrixAt(0, mat(-p.Wd / 2 - (0.7 + 1.3 * (1 - nk)), -p.H / 2 - 1, 3.5, ps, ps, 1)); tint(bigPine, 0, 0.66);
+    bigPine.setMatrixAt(1, mat(p.Wd / 2 + (1.35 + 1.0 * (1 - nk)), -p.H / 2 - 1.2, 3.0, ps * 1.05, ps * 1.05, 1)); tint(bigPine, 1, 0.62);
     const g1 = at(-1.2), g2 = at(1.6);
     floorMesh.setMatrixAt(0, mat(-2.2, -0.9, -1.2, 9, 3, 1)); floorMesh.setMatrixAt(1, mat(3.8, -1.0, -1.6, 8, 2.6, 1)); floorMesh.setMatrixAt(2, mat(0, -g2.H / 2 + 0.25, 1.6, Math.max(10, g2.Wd * 1.3), 4, 1));
     tint(floorMesh, 0, 0.9, 0.1); tint(floorMesh, 1, 0.9, 0.12); tint(floorMesh, 2, 0.78);
@@ -413,13 +448,15 @@ async function buildBalloon(glowT) {
   const B1 = beatGroups[1];
   const card = (t, w, o) => { const g = new THREE.PlaneGeometry(w, w * t.userData.aspect); g.translate(0, (w * t.userData.aspect) / 2, 0); return new THREE.Mesh(g, cardMat(t, o)); };
   // clouds behind (painted, hazed by depth)
-  const back1 = card(tCl, 120, { haze: 0.25, tint: 0xf2e6e6 }); back1.position.set(-14, BEAT - 22, -70); back1.renderOrder = -16; root.add(back1);
+  const back1 = card(tCl, 120, { haze: 0.25, tint: 0xfff6ee }); back1.position.set(-14, BEAT - 22, -70); back1.renderOrder = -16; root.add(back1);
   const back2 = card(tCl, 90, { haze: 0.12, tint: 0xfff4ee }); back2.position.set(22, BEAT - 13, -48); back2.rotation.y = 0; back2.scale.x = -1; back2.renderOrder = -15; root.add(back2);
-  const sea = card(tSea, 150, { haze: 0.1 }); sea.position.set(0, BEAT * 2 - 21, -60); sea.renderOrder = -14; root.add(sea);
-  const sea2 = card(tCl, 80, { haze: 0.2, tint: 0xb9b4d6 }); sea2.position.set(-20, BEAT * 2 - 13, -38); sea2.renderOrder = -13; root.add(sea2);
+  const sea = card(tSea, 150, { haze: 0.1 }); sea.position.set(0, BEAT * 2 - 40, -60); sea.renderOrder = -14; root.add(sea);
+  const sea2 = card(tCl, 80, { haze: 0.2, tint: 0xd6d9ee }); sea2.position.set(-20, BEAT * 2 - 27, -38); sea2.renderOrder = -13; root.add(sea2);
+  for (const m of [back1, back2, sea, sea2]) nightCards.push([m, m.material.uniforms.uTint.value.clone(), 0.75]);
 
   // balloon: smooth lathe envelope with 12 gores, burner, ropes, wicker basket
   const bal = new THREE.Group(); bal.position.set(0.2, BEAT + 0.3, -4); B1.add(bal);
+  let balY = BEAT + 0.3; onLayout(() => { const n = camera.aspect < 0.8; balY = BEAT + (n ? 0.75 : 0.45); bal.position.x = n ? 0.15 : 1.1; });
   const prof = [];
   const N = 56;
   for (let i = 0; i <= N; i++) {
@@ -460,14 +497,14 @@ async function buildBalloon(glowT) {
 
   // clouds in front (framing). Late pass, after the ink, so lines never show through.
   const fg = [];
-  const fgDefs = [[-4.2, BEAT - 3.2, 3.2, 11, 0xfff1ea], [4.6, BEAT - 3.6, 3.6, 12, 0xf6e6ec], [0, BEAT * 1.55, 4.5, 14, 0xffffff], [-5, BEAT + 4.6, 1.2, 9, 0xf4e8ee], [3.5, BEAT * 1.55 - 1, 3.8, 10, 0xf8f0f2]];
-  for (const [x, y, z, w, tnt] of fgDefs) { const m = card(tCl, w, { tint: tnt, opacity: 0.95 }); m.position.set(x, y, z); m.renderOrder = 20; m.userData.x = x; root.add(m); fg.push(m); }
+  const fgDefs = [[-4.2, BEAT - 3.2, 3.2, 11, 0xfff1ea], [4.6, BEAT - 3.6, 3.6, 12, 0xf6e6ec], [-5.6, BEAT * 1.5, 3.4, 7, 0xffffff], [-5, BEAT + 4.6, 1.2, 9, 0xf4e8ee], [5.8, BEAT * 1.55 - 1, 3.6, 7, 0xf8f0f2]];
+  for (const [x, y, z, w, tnt] of fgDefs) { const m = card(tCl, w, { tint: tnt, opacity: 0.95 }); m.position.set(x, y, z); m.renderOrder = 20; m.userData.x = x; root.add(m); fg.push(m); nightCards.push([m, m.material.uniforms.uTint.value.clone(), 0.7]); }
 
   let lift = 0, liftV = 0, flare = 0;
   B1.userData.update = (t, dt) => {
     // bob, slow sway, lift spring
     liftV += (-lift * 6 - liftV * 2.6) * dt; lift += liftV * dt;
-    bal.position.y = BEAT + 0.3 + Math.sin(t * 0.6) * 0.12 + lift;
+    bal.position.y = balY + Math.sin(t * 0.6) * 0.12 + lift;
     bal.rotation.z = Math.sin(t * 0.45) * 0.025; bal.rotation.y = t * 0.05;
     flare = Math.max(0, flare - dt * 1.4);
     const fk = 0.85 + 0.15 * Math.sin(t * 23) * Math.sin(t * 9.0);
@@ -490,6 +527,7 @@ async function buildLetter() {
   });
   const letter = new THREE.Mesh(geo, m);
   const holder = new THREE.Group(); holder.position.set(0, BEAT * 2 + 1.25, -2); holder.add(letter); B2.add(holder);
+  let letY = BEAT * 2 + 1.25; onLayout(() => { const n = camera.aspect < 0.8; letY = BEAT * 2 + (n ? 1.55 : 1.3); });
   letter.rotation.set(-0.12, 0.18, 0.06);
   const hit = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 3.4), new THREE.MeshBasicMaterial()); hit.visible = false; holder.add(hit);
   const tilt = new THREE.Vector2(), tiltV = new THREE.Vector2(), tiltT = new THREE.Vector2(); let flut = 0, hov = 0;
@@ -499,7 +537,7 @@ async function buildLetter() {
     tilt.addScaledVector(tiltV, dt);
     flut = Math.max(0, flut - dt * 0.5);
     m.uniforms.uFlut.value = reduce ? 0 : 1 + flut * 3;
-    holder.position.y = BEAT * 2 + 1.25 + Math.sin(tt * 0.5) * 0.1;
+    holder.position.y = letY + Math.sin(tt * 0.5) * 0.1;
     letter.rotation.set(-0.12 - tilt.y * 0.35 + Math.sin(tt * 0.4) * 0.03, 0.18 + tilt.x * 0.4 + Math.sin(tt * 0.33) * 0.05, 0.06 + Math.sin(tt * 0.3) * 0.02 + flut * 0.04 * Math.sin(tt * 6));
   };
   B2.userData.hits = [{ obj: hit, hover: (pt) => { hov = 1; const l = holder.worldToLocal(pt.clone()); tiltT.set(l.x / 1.2, l.y / 1.6); }, tap: () => { flut = 1; tiltV.y += 1.5; Sound.play('paper', 0.55); } }];
@@ -553,16 +591,13 @@ function showBeat(b) {
 function hideBeat(b) {
   if (!b.classList.contains('in')) return; b.classList.remove('in');
   if (reduce) return;
-  b.querySelectorAll('.slot__in').forEach((e) => animate(e, { y: '110%' }, { duration: 0.45, ease: [0.4, 0, 1, 1] }));
+  // explicit from-keyframe: re-split lines carry inline transform:none, and Motion could not read a start from it,
+  // so the first beat's body stayed on screen under the next beat's text
+  b.querySelectorAll('.slot__in').forEach((e) => animate(e, { y: ['0%', '110%'] }, { duration: 0.45, ease: [0.4, 0, 1, 1] }));
 }
-
-// ========== nav state ==========
-const navLinks = [...document.querySelectorAll('nav.beats a')];
 
 // ========== Lenis: one RAF for scroll + scene ==========
 const lenis = new Lenis({ autoRaf: false, lerp: reduce ? 1 : 0.09, smoothWheel: !reduce, syncTouch: false, anchors: false });
-// each beat is one screen of scroll, so the nav goes to beat * innerHeight (the same unit the scene uses)
-navLinks.forEach((a, i) => a.addEventListener('click', (e) => { e.preventDefault(); lenis.scrollTo(i * innerHeight, { duration: reduce ? 0 : 2.2, immediate: reduce }); }));
 
 // ========== pointer: camera parallax, hover, taps ==========
 const ray = new THREE.Raycaster();
@@ -626,6 +661,10 @@ function frame(now) {
   // palette, sky, stars
   U.haze.value.copy(lerpPal('haze', p)); U.warm.value.copy(lerpPal('warm', p)); U.cool.value.copy(lerpPal('cool', p)); U.ink.value.copy(lerpPal('ink', p));
   renderer.setClearColor(lerpPal('clear', p));
+  const kN = THREE.MathUtils.smoothstep(p, 1.15, 1.9);
+  for (const [m, base, amt] of nightCards) m.material.uniforms.uTint.value.copy(base).lerp(MOON, kN * amt);
+  const kD = 1 - THREE.MathUtils.smoothstep(p, 1.0, 1.5);
+  for (const m of dayLayers) { m.material.uniforms.uOpacity.value = kD; m.visible = kD > 0.01; }
   skyMat.uniforms.uP.value = p; skyMat.uniforms.uStars.value = THREE.MathUtils.smoothstep(p, 1.2, 1.9);
   if (skyMat.uniforms.uSparkT.value >= 0) skyMat.uniforms.uSparkT.value += dt;
   // only the beats near the view do work
@@ -642,7 +681,6 @@ function frame(now) {
   }
   // text in/out by beat
   beats.forEach((b, i) => { const d = Math.abs(P - i); if (d < 0.42) showBeat(b); else if (d > 0.62) hideBeat(b); });
-  navLinks.forEach((a, i) => a.classList.toggle('on', Math.abs(P - i) < 0.5));
   Sound.mix(p);
   renderer.render(scene, camera);
   // adaptive: if frames stay slow on a weak device, render fewer pixels

@@ -135,12 +135,29 @@ uniform vec2 uPtr, uSpark;
 varying vec2 vUv;
 float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 void main(){
-  // cover-fit horizontally; show a window of the tall painting that climbs with scroll
+  // painted sky: morning blue with a big soft sun (the reference), late gold above the trees, then deep blue night.
+  // the old sky painting is only used as brush texture so the gradient never looks digital.
   float span = clamp(uTexAspect / uAspect, 0.32, 0.62);
-  float v0 = mix(0.0, 1.0 - span, clamp(uP / 2.0, 0.0, 1.0));
   float sx = min(1.0, span * uAspect / uTexAspect);
-  vec2 uv = vec2(0.5 + (vUv.x - 0.5) * sx, v0 + vUv.y * span);
-  vec3 col = texture2D(uMap, uv).rgb;
+  vec2 uv = vec2(0.5 + (vUv.x - 0.5) * sx, 0.2 + vUv.y * span);
+  float brush = dot(texture2D(uMap, uv).rgb, vec3(0.333)) - 0.5;
+  float y = vUv.y;
+  float k1 = smoothstep(0.0, 1.0, uP), k2 = smoothstep(1.0, 2.0, uP);
+  vec3 top = mix(mix(vec3(0.40, 0.60, 0.86), vec3(0.47, 0.56, 0.84), k1), vec3(0.04, 0.06, 0.16), k2);
+  vec3 hor = mix(mix(vec3(0.90, 0.93, 0.94), vec3(0.98, 0.86, 0.78), k1), vec3(0.17, 0.20, 0.40), k2);
+  vec3 col = mix(hor, top, pow(smoothstep(0.05, 1.0, y), 0.8));
+  // sun: soft disc + wide warm bloom painted into the sky (no post bloom)
+  vec2 sp0 = vec2(0.66, mix(0.66, 0.42, k1));
+  vec2 sd = (vUv - sp0) * vec2(uAspect, 1.0);
+  float r = length(sd);
+  float sunOn = 1.0 - k2;
+  col = mix(col, vec3(1.0, 0.97, 0.88), smoothstep(0.62, 0.0, r) * 0.55 * sunOn);
+  col = mix(col, vec3(1.0, 0.99, 0.93), smoothstep(0.125, 0.115, r) * 0.92 * sunOn);
+  // drifting painted wisps (day only)
+  vec2 q = vec2(vUv.x * uAspect * 1.6 + uTime * 0.004, vUv.y * 4.0);
+  float w = smoothstep(0.12, 0.42, sin(q.x * 2.1 + sin(q.y * 1.7) * 1.3) * 0.5 + 0.5 + brush * 1.6 - abs(y - 0.74) * 3.2);
+  col = mix(col, mix(vec3(1.0, 0.98, 0.95), vec3(1.0, 0.88, 0.80), k1), w * 0.35 * sunOn);
+  col += brush * mix(0.05, 0.03, k2);
   if (uStars > 0.001) {
     vec2 g = vec2(vUv.x * uAspect, vUv.y) * 34.0;
     vec2 id = floor(g); vec2 f = fract(g) - 0.5;
@@ -188,8 +205,13 @@ float n2(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
 void main(){
   float n = n2(vWp.xz * 0.6) * 0.6 + n2(vWp.xz * 2.3) * 0.4;
   vec3 col = mix(uA, uB, n);
-  float d = clamp((-vWp.z - 2.0) / 60.0, 0.0, 1.0);
-  col = mix(col, uHaze, pow(d, 0.7) * 0.9);
+  // sun-dappled light patches and a few dark hatched shadows, like a painted forest floor
+  float dap = smoothstep(0.55, 0.75, n2(vWp.xz * vec2(0.35, 0.7) + 3.1));
+  col = mix(col, vec3(0.70, 0.80, 0.42), dap * 0.45);
+  float sh = smoothstep(0.62, 0.8, n2(vWp.xz * 0.9 - 7.0));
+  col *= 1.0 - sh * 0.25 * step(0.5, fract((vWp.x + vWp.z) * 9.0));
+  float d = clamp((-vWp.z - 6.0) / 90.0, 0.0, 1.0);
+  col = mix(col, mix(uHaze, vec3(0.42, 0.55, 0.48), 0.35), pow(d, 0.8) * 0.85); // far floor goes blue-green, then to haze
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -263,7 +285,8 @@ void main(){
   if (!gl_FrontFacing) { n = -n; base = mix(c.rgb, vec3(0.86, 0.78, 0.64), 0.75); }
   float l = dot(n, uSun) * 0.5 + 0.5;
   float band = smoothstep(0.38, 0.44, l) * 0.6 + smoothstep(0.64, 0.7, l) * 0.4;
-  vec3 col = base * mix(uCool, uWarm, band);
+  // moonlit paper: cool shadow, pale lit side (lighting it with the warm day colour turned it orange at night)
+  vec3 col = base * mix(vec3(0.56, 0.6, 0.78), vec3(1.02, 0.99, 0.94), band);
   // soft hatching in the curl's shadow
   vec2 g = gl_FragCoord.xy;
   float h = 1.0 - smoothstep(0.1, 0.22, abs(fract((g.x + g.y) / 4.5) - 0.5));
