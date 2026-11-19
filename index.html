@@ -43,6 +43,9 @@ a{color:inherit}
 .stage.ready .veil{opacity:0}
 
 /* ---------- header: Cost of Design nav (mark + sound wave button) ---------- */
+/* the header is fixed at the top through the whole page, footer included (Shifat); it sits outside the sheet so the sheet's clip never cuts it */
+.hdr-fix{position:fixed;top:0;left:0;right:0;z-index:50;pointer-events:none}
+.hdr-fix header>*{pointer-events:auto}
 header{position:relative;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:28px 0}
 .mark{position:relative;display:grid;place-items:center;width:48px;height:48px;margin-left:-11px;border-radius:50%;touch-action:pan-y;color:var(--ink);text-decoration:none;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;-webkit-user-drag:none}
 .mark:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
@@ -200,13 +203,14 @@ el.addEventListener('transitionend',fin2);setTimeout(fin2,1400);}
 window.__pre={add:function(n){total+=n||1;},tick:function(n){fin+=n||1;var t=Math.min(.97,fin/Math.max(total,1));if(t>target){target=t;creep=0;}},done:function(f){cb=f;end=true;},get n(){return [fin,total];}};
 raf=requestAnimationFrame(loop);
 })();</script>
+<div class="hdr-fix"><div class="wrap"><header class="on-dark">
+<a class="mark" href="https://shifatmasud-framer.vercel.app/" aria-label="Shifat Masud, portfolio" draggable="false"><i><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 204 204" aria-hidden="true"><path fill="#ffffff" d="M115.66 1.82L166.95 1.82A14 14 0 0 1 176.85 25.72L111.29 91.28A36 36 0 0 1 85.84 101.82L34.55 101.82A14 14 0 0 1 24.65 77.92L90.21 12.36A36 36 0 0 1 115.66 1.82ZM114.16 98.18L165.45 98.18A14 14 0 0 1 175.35 122.08L109.79 187.64A36 36 0 0 1 84.34 198.18L33.05 198.18A14 14 0 0 1 23.15 174.28L88.71 108.72A36 36 0 0 1 114.16 98.18Z"/></svg></i></a>
+<button class="pill pill--sound" id="sound" type="button" aria-label="Sound on" aria-pressed="true"><span class="sroll ink-par"><span class="ir-a"><canvas class="snd-wave" aria-hidden="true"></canvas></span><span class="ir-b"><canvas class="snd-wave" aria-hidden="true"></canvas></span></span><span class="ink" aria-hidden="true"><span class="sroll ink-par"><span class="ir-a"><canvas class="snd-wave" data-inv aria-hidden="true"></canvas></span><span class="ir-b"><canvas class="snd-wave" data-inv aria-hidden="true"></canvas></span></span></span></button>
+</header></div></div>
 <div class="sheet">
   <div class="stage" id="stage"><canvas id="gl" aria-label="A painted scene: a log house in tall pines, a red balloon above the clouds, and a torn letter under the stars" role="img"></canvas><div class="vig"></div><div class="grain"></div><div class="veil"></div><div class="scrim" aria-hidden="true"></div></div>
   <div class="wrap" style="position:relative;z-index:5">
-<header class="on-dark">
-<a class="mark" href="https://shifatmasud-framer.vercel.app/" aria-label="Shifat Masud, portfolio" draggable="false"><i><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 204 204" aria-hidden="true"><path fill="#ffffff" d="M115.66 1.82L166.95 1.82A14 14 0 0 1 176.85 25.72L111.29 91.28A36 36 0 0 1 85.84 101.82L34.55 101.82A14 14 0 0 1 24.65 77.92L90.21 12.36A36 36 0 0 1 115.66 1.82ZM114.16 98.18L165.45 98.18A14 14 0 0 1 175.35 122.08L109.79 187.64A36 36 0 0 1 84.34 198.18L33.05 198.18A14 14 0 0 1 23.15 174.28L88.71 108.72A36 36 0 0 1 114.16 98.18Z"/></svg></i></a>
-<button class="pill pill--sound" id="sound" type="button" aria-label="Sound on" aria-pressed="true"><span class="sroll ink-par"><span class="ir-a"><canvas class="snd-wave" aria-hidden="true"></canvas></span><span class="ir-b"><canvas class="snd-wave" aria-hidden="true"></canvas></span></span><span class="ink" aria-hidden="true"><span class="sroll ink-par"><span class="ir-a"><canvas class="snd-wave" data-inv aria-hidden="true"></canvas></span><span class="ir-b"><canvas class="snd-wave" data-inv aria-hidden="true"></canvas></span></span></span></button>
-</header>
+
   </div>
   <main>
     <section class="beat" id="home" data-beat="0">

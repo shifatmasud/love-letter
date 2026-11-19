@@ -300,12 +300,14 @@ async function build() {
   const logs = []; const ends = [];
   for (let i = 0; i < NL; i++) {
     const y = R + i * R * 1.85;
-    logs.push(mat(0, y, D / 2, W + 0.5, 1, 1), mat(0, y, -D / 2, W + 0.5, 1, 1));
+    // flush corners (Shifat: remove the stacked log ends at the corners): front and back logs stop at the side walls' outer face,
+    // and the side logs stop inside the front and back walls, so no log ends stick out and the corners stay closed
+    logs.push(mat(0, y, D / 2, W + 2 * R, 1, 1), mat(0, y, -D / 2, W + 2 * R, 1, 1));
     const y2 = y + R * 0.92;
     // the top side logs sat half above the wall, so their ends stuck out as two knobs at the roof edge (Shifat: remove)
-    if (i < NL - 1) logs.push(mat(-W / 2, y2, 0, D + 0.5, 1, 1, 0, Math.PI / 2, 0), mat(W / 2, y2, 0, D + 0.5, 1, 1, 0, Math.PI / 2, 0));
-    for (const sx of [-1, 1]) ends.push(mat(sx * (W / 2 + 0.25), y, D / 2, R, R, 1, 0, Math.PI / 2 * sx, 0), mat(sx * (W / 2 + 0.25), y, -D / 2, R, R, 1, 0, Math.PI / 2 * sx, 0));
-    if (i < NL - 1) for (const sz of [-1, 1]) ends.push(mat(-W / 2, y2, sz * (D / 2 + 0.25), R, R, 1, 0, sz > 0 ? 0 : Math.PI, 0), mat(W / 2, y2, sz * (D / 2 + 0.25), R, R, 1, 0, sz > 0 ? 0 : Math.PI, 0));
+    if (i < NL - 1) logs.push(mat(-W / 2, y2, 0, D, 1, 1, 0, Math.PI / 2, 0), mat(W / 2, y2, 0, D, 1, 1, 0, Math.PI / 2, 0));
+    // plain wood caps close the open ends of the front and back logs on the side faces (no end-grain rings)
+    for (const sx of [-1, 1]) ends.push(mat(sx * (W / 2 + R), y, D / 2, R, R, 1, 0, Math.PI / 2 * sx, 0), mat(sx * (W / 2 + R), y, -D / 2, R, R, 1, 0, Math.PI / 2 * sx, 0));
   }
   const wallTop = R + (NL - 1) * R * 1.85 + R * 0.92;
   // gables on the left and right: shorter logs stacked up to the ridge
@@ -319,7 +321,7 @@ async function build() {
   logs.forEach((m, i) => logMesh.setMatrixAt(i, m));
   withInk(logMesh, 0.8); house.add(logMesh);
   const endGeo = new THREE.CircleGeometry(1, 28);
-  const endMesh = new THREE.InstancedMesh(endGeo, toonMat(tEnd, { hatch: 0.25, rim: 0.1 }), ends.length);
+  const endMesh = new THREE.InstancedMesh(endGeo, toonMat(tWood, { tint: 0x6a5240, hatch: 0 }), ends.length);
   ends.forEach((m, i) => endMesh.setMatrixAt(i, m)); house.add(endMesh);
   // the walls behind the logs (fills the gaps between round logs)
   const fill = new THREE.Mesh(new THREE.BoxGeometry(W, wallTop, D), toonMat(tWood, { tint: 0x6a5240, hatch: 0 }));
@@ -577,7 +579,7 @@ async function buildBalloon(glowT) {
     ['s0', -36, 0.78, 0.62, 0.12, 1, 1.05, -15.2, 0.26, -1, 0.75],
     ['s3', -22, 0.62, -0.78, 0.2, 1, 1.15, -14, 0.1, 1, 0.72],
     ['big', 2.5, -1.08, -1.02, 0.5, 1, 'near', 20, 0, 1, 0.7],
-    ['s1', 3.0, 0.98, 0.9, 0.24, 1, 'frame', 20.5, 0, -1, 0.7],
+    ['s1', 3.0, 0.98, 0.58, 0.24, 1, 'frame', 20.5, 0, -1, 0.7], // lower than the fixed white header
     // a rich cloudscape (Shifat): many more whole clouds. back: small and hazy, all around
     ['s0', -46, -0.25, 0.78, 0.09, 1, 0.95, -16.2, 0.32, 1, 0.78],
     ['s3', -46, 0.3, -0.72, 0.1, 1, 0.95, -16.2, 0.32, -1, 0.78],
@@ -591,7 +593,7 @@ async function buildBalloon(glowT) {
     ['s1', -26, 0.5, -0.98, 0.16, 1, 1.1, -14.75, 0.15, -1, 0.72],
     // front: two more near clouds, only in the corners
     ['s0', 2.2, 1.1, -0.95, 0.3, 1, 'near', 20.2, 0, -1, 0.7],
-    ['s3', 2.0, -1.08, 0.95, 0.22, 1, 'frame', 20.3, 0, 1, 0.7],
+    ['s3', 2.0, -1.08, 0.6, 0.22, 1, 'frame', 20.3, 0, 1, 0.7], // lower than the fixed white header
     // between beats: one thin cloud passes through the empty middle on the way up (never over a subject)
     ['s2', 1.0, 0.0, 0.0, 0.16, 1.5, 'near', 19, 0, 1, 0.7],
     // behind the balloon on the way up: two big mid clouds so the climb feels full on wide screens too
