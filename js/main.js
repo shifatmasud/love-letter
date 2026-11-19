@@ -167,6 +167,33 @@ scene.add(sky);
 // ========== layout state that depends on the viewport ==========
 const layoutFns = [];
 const onLayout = (f) => layoutFns.push(f);
+// ===== depth planes (notes/composition.md) =====
+// every painted card belongs to a plane with a fixed scroll speed s (share of a screen per beat, hero = 1)
+// and an anchor beat a where it sits at its framed spot. It leaves the frame only by moving, never by fading.
+const PLANE_S = { back: 0.45, far: 0.6, mid: 0.8, hero: 1, near: 1.3, frame: 1.5 };
+const planes = [];
+function plane(m, kind, a) { m.userData.s = PLANE_S[kind] ?? kind; m.userData.a = a; if (m.userData.y0 === undefined) m.userData.y0 = m.position.y; planes.push(m); return m; }
+// forest planes must be fully below the frame by p = 0.95 on every screen shape: raise their speed if the card is tall
+onLayout(() => {
+  for (const m of planes) {
+    if (!m.userData.exit) continue; const d = 10 - m.position.z, H = vh(d);
+    if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+    const top = m.userData.y0 + m.geometry.boundingBox.max.y * Math.abs(m.scale.y);
+    m.userData.s = Math.max(m.userData.sBase, (top + H * 0.55) / (0.95 * H));
+  }
+});
+function updatePlanes(p) {
+  for (const m of planes) { const d = 10 - m.position.z; m.position.y = m.userData.y0 + (p - m.userData.a) * (BEAT - m.userData.s * vh(d)); }
+}
+// cards placed in screen terms at their anchor beat: fx, fy in -1..1 of the half frame, sh = height as a share of the frame
+const placed = [];
+function place(m, z, fx, fy, sh, a, kind) { m.position.z = z; m.userData.place = { fx, fy, sh, a, flip: m.userData.flip ?? 1 }; placed.push(m); return plane(m, kind, a); }
+onLayout(() => {
+  for (const m of placed) {
+    const { fx, fy, sh, a, flip } = m.userData.place; const H = vh(10 - m.position.z), Wd = H * camera.aspect;
+    m.scale.set(sh * H * flip, sh * H, 1); m.position.x = fx * Wd / 2; m.userData.x = m.position.x; m.userData.y0 = a * BEAT + fy * H / 2;
+  }
+});
 
 async function build() {
   const [tSky, tFar, tMid, tPine, tGround, tWood, tRoof, tEnd, tStone, tWin, tDoor, tMon, tPalm, tFern, tGrass, tBough] = await Promise.all([
@@ -187,9 +214,10 @@ async function build() {
   mist1.position.set(0, 0, -80); mist1.renderOrder = -19; root.add(mist1);
   const mid = card(tMid, 120, { haze: 0.14 }); mid.position.set(6, -4.5, -55); mid.renderOrder = -18; root.add(mid);
   const mid2 = card(tMid, 110, { haze: 0.32 }); mid2.scale.x = -1; mid2.position.set(-14, -6, -68); mid2.renderOrder = -18.5; root.add(mid2);
-  dayLayers.push(far, mid, mid2);
+  // the forest leaves with the crane drop, so its painted planes keep the same order but run faster: back 1.3, far 1.5 (3D pines ~1.6+, house ~2.8)
+  for (const [m, sp] of [[far, 1.3], [mist1, 1.3], [mid, 1.5], [mid2, 1.45]]) { plane(m, sp, 0); m.userData.exit = true; m.userData.sBase = sp; }
   const mist2 = mist1.clone(); mist2.material = mist1.material.clone(); mist2.material.uniforms.uHaze = U.haze; mist2.material.uniforms.uTime = U.time; mist2.material.uniforms.uOpacity.value = 0.5;
-  mist2.scale.set(0.6, 0.55, 1); mist2.position.set(0, -2.5, -40); mist2.renderOrder = -17; root.add(mist2);
+  mist2.scale.set(0.6, 0.55, 1); mist2.position.set(0, -2.5, -40); mist2.renderOrder = -17; root.add(mist2); plane(mist2, 1.5, 0);
 
   // ground: a painted moss floor fading into the haze
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(220, 120), new THREE.ShaderMaterial({ uniforms: { uHaze: U.haze, uA: { value: C(0x37562b) }, uB: { value: C(0x7b9a47) } }, vertexShader: S.groundVert, fragmentShader: S.groundFrag, depthWrite: false }));
@@ -448,13 +476,38 @@ async function buildBalloon(glowT) {
   const B1 = beatGroups[1];
   const card = (t, w, o) => { const g = new THREE.PlaneGeometry(w, w * t.userData.aspect); g.translate(0, (w * t.userData.aspect) / 2, 0); return new THREE.Mesh(g, cardMat(t, o)); };
   // clouds behind (painted, hazed by depth)
-  const back1 = card(tCl, 120, { haze: 0.25, tint: 0xfff6ee }); back1.position.set(-14, BEAT - 22, -70); back1.renderOrder = -16; root.add(back1);
-  const back2 = card(tCl, 90, { haze: 0.12, tint: 0xfff4ee }); back2.position.set(22, BEAT - 13, -48); back2.rotation.y = 0; back2.scale.x = -1; back2.renderOrder = -15; root.add(back2);
-  const sea = card(tSea, 150, { haze: 0.1 }); sea.position.set(0, BEAT * 2 - 40, -60); sea.renderOrder = -14; root.add(sea);
-  const sea2 = card(tCl, 80, { haze: 0.2, tint: 0xd6d9ee }); sea2.position.set(-20, BEAT * 2 - 27, -38); sea2.renderOrder = -13; root.add(sea2);
-  for (const m of [back1, back2, sea, sea2]) nightCards.push([m, m.material.uniforms.uTint.value.clone(), 0.75]);
+  const [tBig, tS0, tS1, tS2, tS3] = await Promise.all(['cl-big', 'cl-s0', 'cl-s1', 'cl-s2', 'cl-s3'].map((n) => tex(n)));
+  // whole clouds, centred cards of unit height; place() sizes them per screen
+  const cc = (t, o, flip = 1) => { const g = new THREE.PlaneGeometry(1 / t.userData.aspect, 1); const m = new THREE.Mesh(g, cardMat(t, o)); m.userData.flip = flip; root.add(m); return m; };
+  const CL = { big: tBig, s0: tS0, s1: tS1, s2: tS2, s3: tS3, tri: tCl, sea: tSea };
+  // [tex, z, fx, fy, height share, anchor beat, plane, renderOrder, haze, flip, night]
+  const defs = [
+    // beat 1: in the clouds. back bank under the balloon, far puffs on the thirds, two near clouds in opposite corners
+    ['big', -42, -0.62, -0.5, 0.36, 1, 1.0, -15.8, 0.2, -1, 0.75],
+    ['s1', -40, 0.78, -0.3, 0.2, 1, 1.0, -15.6, 0.22, 1, 0.75],
+    ['s2', -38, -0.8, 0.5, 0.13, 1, 1.05, -15.4, 0.24, 1, 0.75],
+    ['s0', -36, 0.78, 0.62, 0.12, 1, 1.05, -15.2, 0.26, -1, 0.75],
+    ['s3', -22, 0.62, -0.78, 0.2, 1, 1.15, -14, 0.1, 1, 0.72],
+    ['big', 2.5, -1.08, -1.02, 0.5, 1, 'near', 20, 0, 1, 0.7],
+    ['s1', 3.0, 0.98, 0.9, 0.24, 1, 'frame', 20.5, 0, -1, 0.7],
+    // between beats: one thin cloud passes through the empty middle on the way up (never over a subject)
+    ['tri', 1.0, 0.0, 0.0, 0.2, 1.5, 'near', 19, 0, 1, 0.7],
+    // behind the balloon on the way up: two big mid clouds so the climb feels full on wide screens too
+    ['big', -30, -0.5, 0.15, 0.42, 1.5, 1.1, -14.8, 0.12, 1, 0.65],
+    ['s3', -26, 0.55, 0.4, 0.3, 1.5, 1.1, -14.7, 0.12, -1, 0.65],
+    // beat 2: above the clouds at night. a sea of cloud below the letter, small clouds low at the sides
+    ['sea', -60, 0.0, -0.62, 0.5, 2, 1.3, -16.5, 0.08, -1, 0.6],
+    ['tri', -40, 0.0, -0.9, 0.3, 2, 1.35, -14.5, 0.05, 1, 0.6],
+    ['s2', -30, -0.8, -0.3, 0.14, 2, 1.35, -14.2, 0.06, -1, 0.6],
+    ['s0', -28, 0.82, -0.4, 0.13, 2, 1.35, -14.1, 0.06, 1, 0.6],
+    ['s3', 2.8, 1.06, -1.04, 0.36, 2, 'near', 20, 0, -1, 0.7],
+  ];
+  const fg = [];
+  for (const [k, z, fx, fy, sh, a, kind, ro, haze, flip, night] of defs) {
+    const m = cc(CL[k], { haze, tint: 0xffffff, opacity: 1 }, flip); m.renderOrder = ro; place(m, z, fx, fy, sh, a, kind);
+    nightCards.push([m, m.material.uniforms.uTint.value.clone(), night]); if (z > 0) fg.push(m);
+  }
 
-  // balloon: smooth lathe envelope with 12 gores, burner, ropes, wicker basket
   const bal = new THREE.Group(); bal.position.set(0.2, BEAT + 0.3, -4); B1.add(bal);
   let balY = BEAT + 0.3; onLayout(() => { const n = camera.aspect < 0.8; balY = BEAT + (n ? 0.75 : 0.45); bal.position.x = n ? 0.15 : 1.1; });
   const prof = [];
@@ -496,9 +549,6 @@ async function buildBalloon(glowT) {
   const hit = new THREE.Mesh(new THREE.BoxGeometry(3.4, 5.2, 3.4), new THREE.MeshBasicMaterial()); hit.visible = false; hit.position.y = 0.2; bal.add(hit);
 
   // clouds in front (framing). Late pass, after the ink, so lines never show through.
-  const fg = [];
-  const fgDefs = [[-4.2, BEAT - 3.2, 3.2, 11, 0xfff1ea], [4.6, BEAT - 3.6, 3.6, 12, 0xf6e6ec], [-5.6, BEAT * 1.5, 3.4, 7, 0xffffff], [-5, BEAT + 4.6, 1.2, 9, 0xf4e8ee], [5.8, BEAT * 1.55 - 1, 3.6, 7, 0xf8f0f2]];
-  for (const [x, y, z, w, tnt] of fgDefs) { const m = card(tCl, w, { tint: tnt, opacity: 0.95 }); m.position.set(x, y, z); m.renderOrder = 20; m.userData.x = x; root.add(m); fg.push(m); nightCards.push([m, m.material.uniforms.uTint.value.clone(), 0.7]); }
 
   let lift = 0, liftV = 0, flare = 0;
   B1.userData.update = (t, dt) => {
@@ -511,7 +561,7 @@ async function buildBalloon(glowT) {
     fl.material.opacity = (0.55 + flare * 0.45) * fk; fl.scale.set(0.3 + flare * 0.25, (0.5 + flare * 0.9) * fk, 1); fl.position.y = -1.8 + flare * 0.18;
     flHalo.material.opacity = 0.18 + flare * 0.32; flHalo.scale.setScalar(1.3 + flare * 1.6);
     env.material.uniforms.uGlow.value = flare * 0.12;
-    fg.forEach((m, i) => { m.position.x = m.userData.x + Math.sin(t * 0.05 + i * 2) * 0.6; });
+    fg.forEach((m, i) => { m.position.x = m.userData.x + Math.sin(t * 0.07 + i * 2) * 0.15; }); // drift stays tiny so corner clouds never reach the subject
   };
   B1.userData.hits = [{ obj: hit, hover: () => { flare = Math.max(flare, 0.25); }, tap: () => { flare = 1.2; liftV += 1.6; Sound.play('burner', 0.5); } }];
 }
@@ -527,7 +577,7 @@ async function buildLetter() {
   });
   const letter = new THREE.Mesh(geo, m);
   const holder = new THREE.Group(); holder.position.set(0, BEAT * 2 + 1.25, -2); holder.add(letter); B2.add(holder);
-  let letY = BEAT * 2 + 1.25; onLayout(() => { const n = camera.aspect < 0.8; letY = BEAT * 2 + (n ? 1.55 : 1.3); });
+  let letY = BEAT * 2 + 1.25; onLayout(() => { const n = camera.aspect < 0.8; letY = BEAT * 2 + (n ? 1.55 : 1.3); holder.scale.setScalar(n ? 1.3 : 1.35); });
   letter.rotation.set(-0.12, 0.18, 0.06);
   const hit = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 3.4), new THREE.MeshBasicMaterial()); hit.visible = false; holder.add(hit);
   const tilt = new THREE.Vector2(), tiltV = new THREE.Vector2(), tiltT = new THREE.Vector2(); let flut = 0, hov = 0;
@@ -545,8 +595,13 @@ async function buildLetter() {
 }
 
 // ========== resize ==========
+// Jitter root cause (probe/jit.py): the stage and the beats are 100lvh tall, but P and the canvas used innerHeight,
+// which changes when the phone's URL bar slides. The scene jumped (0.42 units with no scroll) and the canvas stretched
+// for a few frames. Both now read the stage's own size, which the URL bar never changes.
+let stageW = 0, stageH = 0;
 function resize() {
-  const w = innerWidth, h = innerHeight;
+  const w = stage.clientWidth || innerWidth, h = stage.clientHeight || innerHeight;
+  stageW = w; stageH = h;
   camera.aspect = w / h;
   // keep a wide-lens feel on desktop, open the view up on tall phones so the subjects fit
   camera.fov = camera.aspect < 0.62 ? 56 : camera.aspect < 1 ? 48 : 40;
@@ -603,14 +658,17 @@ const lenis = new Lenis({ autoRaf: false, lerp: reduce ? 1 : 0.09, smoothWheel: 
 const ray = new THREE.Raycaster();
 const ndc = new THREE.Vector2(9, 9);
 const ptrS = new THREE.Vector2(), ptrT = new THREE.Vector2();
-let dragging = false, lastHover = 0;
+let dragging = false, dragX = 0, lastHover = 0;
 canvas.style.touchAction = 'pan-y';
 function setNdc(e) { ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); }
 addEventListener('pointermove', (e) => {
   setNdc(e); U.ptr.value.copy(ndc);
-  if (e.pointerType === 'mouse' || dragging) ptrT.set(ndc.x, ndc.y);
+  if (e.pointerType === 'mouse') ptrT.set(ndc.x, ndc.y);
+  // touch: only a sideways drag tilts. Jitter root cause #2 (probe): pointerdown aimed the camera at the finger, so every
+  // vertical swipe began with a camera lurch toward the touch point and an ease back.
+  else if (dragging) ptrT.set(THREE.MathUtils.clamp((e.clientX - dragX) / (innerWidth * 0.45), -1, 1), 0);
 }, { passive: true });
-addEventListener('pointerdown', (e) => { if (e.target.closest('a,button')) return; setNdc(e); U.ptr.value.copy(ndc); dragging = true; ptrT.set(ndc.x, ndc.y); tap(); }, { passive: true });
+addEventListener('pointerdown', (e) => { if (e.target.closest('a,button')) return; setNdc(e); U.ptr.value.copy(ndc); dragging = true; dragX = e.clientX; if (e.pointerType === 'mouse') ptrT.set(ndc.x, ndc.y); tap(); }, { passive: true });
 addEventListener('pointerup', () => { dragging = false; if (coarse) ptrT.set(0, 0); }, { passive: true });
 addEventListener('pointercancel', () => { dragging = false; if (coarse) ptrT.set(0, 0); }, { passive: true });
 document.addEventListener('pointerleave', () => { ptrT.set(0, 0); U.ptr.value.set(9, 9); });
@@ -634,6 +692,8 @@ function tap() {
 function inFooter() { return scrollY > document.querySelector('.sheet').offsetHeight - innerHeight * 0.6; }
 
 // ========== loop ==========
+let forced = null; // test hook: hold the pointer at the tilt limit
+const B0_DROP = 26, PTR_X = 0.32, PTR_Y = 0.16;
 let P = 0, Psm = 0, last = performance.now(), running = true, frames = 0, slowFrames = 0, built = false;
 const stage = $('#stage');
 const col = new THREE.Color();
@@ -646,7 +706,7 @@ function frame(now) {
   lenis.raf(now);
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (!built || !running || document.hidden) return;
-  const H = innerHeight;
+  const H = stageH || innerHeight;
   const y = lenis.animatedScroll ?? scrollY;
   P = THREE.MathUtils.clamp(y / H, 0, 2.25);
   Psm = P; // Lenis already eases the value; a second smoothing here would make scene and page drift
@@ -655,16 +715,20 @@ function frame(now) {
   // the scene moves, the camera stays: scroll lifts everything by one beat per screen
   root.position.y = -p * BEAT - (Psm - p) * 4;
   // gentle camera parallax from mouse or touch drag, sprung
+  if (forced) ptrT.set(forced[0], forced[1]);
   ptrS.lerp(reduce ? ptrS.set(0, 0) : ptrT, Math.min(1, dt * 2.4));
-  camera.position.set(ptrS.x * 0.55, ptrS.y * 0.32, 10);
-  camera.lookAt(ptrS.x * 0.1, ptrS.y * 0.06, -30);
+  // the camera swings around the hero plane (z -4): the subject stays put, near planes move a little one way and far planes
+  // a little the other. Travel is small so the framing plants and corner clouds can never reach the subject.
+  camera.position.set(ptrS.x * PTR_X, ptrS.y * PTR_Y, 10);
+  camera.lookAt(0, 0, -4);
   // palette, sky, stars
   U.haze.value.copy(lerpPal('haze', p)); U.warm.value.copy(lerpPal('warm', p)); U.cool.value.copy(lerpPal('cool', p)); U.ink.value.copy(lerpPal('ink', p));
   renderer.setClearColor(lerpPal('clear', p));
   const kN = THREE.MathUtils.smoothstep(p, 1.15, 1.9);
   for (const [m, base, amt] of nightCards) m.material.uniforms.uTint.value.copy(base).lerp(MOON, kN * amt);
-  const kD = 1 - THREE.MathUtils.smoothstep(p, 1.0, 1.5);
-  for (const m of dayLayers) { m.material.uniforms.uOpacity.value = kD; m.visible = kD > 0.01; }
+  updatePlanes(p);
+  // the forest leaves like a crane shot speeding up: one extra world drop for the whole beat (no fade, no switch)
+  beatGroups[0].position.y = -B0_DROP * THREE.MathUtils.smootherstep(p, 0.2, 1.0);
   skyMat.uniforms.uP.value = p; skyMat.uniforms.uStars.value = THREE.MathUtils.smoothstep(p, 1.2, 1.9);
   if (skyMat.uniforms.uSparkT.value >= 0) skyMat.uniforms.uSparkT.value += dt;
   // only the beats near the view do work
@@ -726,5 +790,5 @@ requestAnimationFrame(frame);
   await buildLetter();
   resize();
   renderer.compile(scene, camera);
-  window.__pines = { ready: true, renderer, scene, camera, lenis, LOW, GPU };
+  window.__pines = { ready: true, renderer, scene, camera, lenis, LOW, GPU, forcePtr: (x, y) => { forced = x === null ? null : [x, y]; } };
 })().catch((e) => { console.error(e); stage.classList.add('ready'); built = true; });
