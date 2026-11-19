@@ -1,7 +1,8 @@
 import { asset } from './assets.js';
 // Ambient sound for Love Letter.
 // Real CC0 recordings (see SOUNDS.md). Nothing plays before the first tap or click.
-// Three beds crossfade by scroll: forest (house), air (balloon), night + pad (letter).
+// Every scene sound is a real field recording (no synth): wind in the pines, leaves and a quiet fire at the house,
+// soft high wind with the balloon, far crickets at night. Beds crossfade slowly by scroll. UI sounds are separate.
 import { bindInk } from './ink-button.js';
 
 const KEY = 'pines-muted';
@@ -9,9 +10,9 @@ const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let muted = false;
 try { muted = localStorage.getItem(KEY) === '1'; } catch (_) {}
 
-const BEDS = { forest: 0.62, air: 0.5, night: 0.42, pad: 0.34 };
-const SHOTS = ['creak', 'crackle', 'burner', 'paper', 'wings', 'sparkle', 'star'];
-const MASTER = 0.9;
+const BEDS = { pines: 0.5, leaves: 0.16, fire: 0.1, air: 0.42, night: 0.2 };
+const SHOTS = ['creak', 'crackle', 'cloth', 'paper', 'rustle', 'gust', 'star'];
+const MASTER = 0.8;
 let ctx = null, out = null, started = false, ext = 'webm';
 const buf = {}, bed = {};
 let lastP = 0;
@@ -51,21 +52,22 @@ async function boot() {
   const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 9000;
   out.connect(lp); lp.connect(comp); comp.connect(ctx.destination);
   if (ctx.state === 'suspended') ctx.resume();
-  const near = lastP < 0.8 ? ['forest'] : lastP < 1.6 ? ['air'] : ['night', 'pad'];
+  const near = lastP < 0.8 ? ['pines', 'leaves', 'fire'] : lastP < 1.6 ? ['air'] : ['night'];
   const order = [...near, ...Object.keys(BEDS).filter((b) => !near.includes(b))];
   for (const n of order) { buf[n] = await load(n); startBed(n); }
   for (const n of SHOTS) buf[n] = await load(n);
 }
 function tri(x) { return Math.max(0, 1 - Math.abs(x)); }
-function mix(p, tc = 0.6) {
+function mix(p, tc = 1.1) { // slow time constant: smooth crossfades, no jumps
   lastP = p;
   if (!ctx) return;
   const t = ctx.currentTime;
   const lv = {
-    forest: Math.max(0, 1 - p * 1.1),
+    pines: Math.max(0, 1 - p * 0.95),
+    leaves: Math.max(0, 1 - p * 1.4),
+    fire: Math.max(0, 1 - p * 2.2), // only close to the house
     air: tri(p - 1) ** 0.8,
-    night: Math.min(1, Math.max(0, (p - 1.15) / 0.75)),
-    pad: Math.min(1, Math.max(0, (p - 1.3) / 0.7)),
+    night: Math.min(1, Math.max(0, (p - 1.2) / 0.8)),
   };
   for (const n in bed) bed[n].gain.setTargetAtTime(lv[n] * BEDS[n], t, tc);
 }

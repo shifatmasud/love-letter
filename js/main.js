@@ -530,10 +530,10 @@ async function build() {
     bGeo.attributes.position.needsUpdate = true;
   };
   B0.userData.hits = [
-    { obj: houseHit, hover: () => { winGlow = Math.max(winGlow, 0.5); }, tap: () => { winGlow = 1.4; smokeBoost = 2.2; Sound.play('crackle', 0.55); setTimeout(() => Sound.play('creak', 0.32), 260); } },
+    { obj: houseHit, hover: () => { winGlow = Math.max(winGlow, 0.5); }, tap: () => { winGlow = 1.4; smokeBoost = 2.2; Sound.play('creak', 0.3); setTimeout(() => Sound.play('crackle', 0.22), 220); } },
   ];
   B0.userData.tapMiss = (pt) => { // tap on the forest: fireflies scatter, leaves rustle
-    scat.copy(pt ?? V.set(0, 0.6, -2)); scatT = U.time.value; rustleKick = 1; Sound.play('sparkle', 0.32); if (pt && pt.z > 1) Sound.play('wings', 0.28);
+    scat.copy(pt ?? V.set(0, 0.6, -2)); scatT = U.time.value; rustleKick = 1; Sound.play('rustle', 0.3, { pan: pt ? pt.x / 8 : 0 });
   };
   B0.userData.fireflyPt = (p) => { scat.copy(p); scatT = U.time.value - 0.15; };
   B0.userData.mats = { fg: [...masses.map((m) => m.material), bough.material, ...lgs.map((m) => m.material)] }; B0.userData.fg = fgGroup;
@@ -650,7 +650,7 @@ async function buildBalloon(glowT) {
     env.material.uniforms.uGlow.value = flare * 0.12;
     fg.forEach((m, i) => { m.position.x = m.userData.x + Math.sin(t * 0.07 + i * 2) * 0.15; }); // drift stays tiny so corner clouds never reach the subject
   };
-  B1.userData.hits = [{ obj: hit, hover: () => { flare = Math.max(flare, 0.25); }, tap: () => { flare = 1.2; liftV += 1.6; Sound.play('burner', 0.5); } }];
+  B1.userData.hits = [{ obj: hit, hover: () => { flare = Math.max(flare, 0.25); }, tap: () => { flare = 1.2; liftV += 1.6; Sound.play('cloth', 0.32); } }];
 }
 
 // ========== BEAT 2: the letter above the clouds ==========
@@ -678,8 +678,8 @@ async function buildLetter() {
     holder.position.y = letY + Math.sin(tt * 0.5) * 0.1;
     letter.rotation.set(-0.12 - tilt.y * 0.35 + Math.sin(tt * 0.4) * 0.03, 0.18 + tilt.x * 0.4 + Math.sin(tt * 0.33) * 0.05, 0.06 + Math.sin(tt * 0.3) * 0.02 + flut * 0.04 * Math.sin(tt * 6));
   };
-  B2.userData.hits = [{ obj: hit, hover: (pt) => { hov = 1; const l = holder.worldToLocal(pt.clone()); tiltT.set(l.x / 1.2, l.y / 1.6); }, tap: () => { flut = 1; tiltV.y += 1.5; Sound.play('paper', 0.55); } }];
-  B2.userData.tapMiss = (pt, ndc) => { skyMat.uniforms.uSpark.value.copy(ndc); skyMat.uniforms.uSparkT.value = 0; Sound.play('star', 0.35); };
+  B2.userData.hits = [{ obj: hit, hover: (pt) => { hov = 1; const l = holder.worldToLocal(pt.clone()); tiltT.set(l.x / 1.2, l.y / 1.6); }, tap: () => { flut = 1; tiltV.y += 1.5; Sound.play('paper', 0.34); } }];
+  B2.userData.tapMiss = (pt, ndc) => { skyMat.uniforms.uSpark.value.copy(ndc); skyMat.uniforms.uSparkT.value = 0; Sound.play('gust', 0.26); };
 }
 
 // ========== resize ==========
