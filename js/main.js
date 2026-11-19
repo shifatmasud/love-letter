@@ -222,12 +222,24 @@ async function build() {
   const card = (t, w, o) => { const g = new THREE.PlaneGeometry(w, w * t.userData.aspect); g.translate(0, (w * t.userData.aspect) / 2, 0); return new THREE.Mesh(g, cardMat(t, o)); };
   // painted ridges at a believable size: mirrored tiles side by side, so wide screens are covered without blowing the cards up
   const tiles = (t, w, n, o, x0, y, z, ro, flip0 = 1) => { const out = []; for (let i = 0; i < n; i++) { const m = card(t, w, o); const k = i - (n - 1) / 2; m.scale.x = (i % 2 ? -1 : 1) * flip0; m.position.set(x0 + k * w, y, z); m.renderOrder = ro; B0.add(m); out.push(m); } return out; };
-  const farT = tiles(tFar, 92, 3, { haze: 0.3, fadeBot: 0.0 }, 0, -3, -95, -20); const far = farT[1]; far.name = 'L1 back ridge';
+  // every pine in the scene is the same painted pine as the ones beside the house (Shifat): the far "ridges" are rows of
+  // that one card, and only scale, value and haze change with distance (aerial perspective, notes/composition.md)
+  const pineRow = (z, span, n, hTop, haze, val, ro, seed, name) => {
+    const pr = mulberry(seed), a = tPine.userData.aspect, g = new THREE.PlaneGeometry(1, a); g.translate(0, a / 2, 0);
+    const m = new THREE.InstancedMesh(g, cardMat(tPine, { cut: 0.5, sway: 0.03, haze }), n);
+    for (let i = 0; i < n; i++) {
+      const x = -span / 2 + (i + 0.15 + pr() * 0.7) * (span / n), zz = z - pr() * 6;
+      const h = hTop * (0.72 + pr() * 0.4), sc = h / a; const v = val * (0.9 + pr() * 0.12);
+      m.setMatrixAt(i, mat(x, -3, zz, sc * (pr() < 0.5 ? -1 : 1), sc, 1)); m.setColorAt(i, new THREE.Color().setRGB(v, v, v));
+    }
+    m.renderOrder = ro; m.frustumCulled = false; m.name = name; B0.add(m); return m;
+  };
+  const far = pineRow(-95, 300, LOW ? 34 : 48, 36, 0.62, 0.86, -20, 11, 'L1 back ridge');
   const mist1 = new THREE.Mesh(new THREE.PlaneGeometry(260, 16), new THREE.ShaderMaterial({ uniforms: { uHaze: U.haze, uOpacity: { value: 0.7 }, uTime: U.time }, vertexShader: S.plainVert, fragmentShader: S.mistFrag, transparent: true, depthWrite: false }));
   mist1.position.set(0, 1, -80); mist1.renderOrder = -19; B0.add(mist1);
-  const mid2 = tiles(tMid, 62, 3, { haze: 0.32 }, -10, -3.5, -68, -18.5, -1)[1]; mid2.name = 'L2 far pines';
-  const mid = tiles(tMid, 54, 3, { haze: 0.14 }, 8, -3, -55, -18)[1]; mid.name = 'L3 mid pines';
-  tiles(tMid, 46, 3, { haze: 0.08 }, -4, -2.6, -44, -17.5, -1); // a third, nearer ridge: the forest reads dense all the way back
+  const mid2 = pineRow(-68, 230, LOW ? 30 : 42, 32, 0.5, 0.88, -18.5, 12, 'L2 far pines');
+  const mid = pineRow(-55, 200, LOW ? 28 : 38, 29, 0.36, 0.9, -18, 13, 'L3 mid pines');
+  pineRow(-44, 170, LOW ? 24 : 34, 25, 0.24, 0.92, -17.5, 14, 'L3b near ridge'); // a third, nearer row: the forest reads dense all the way back
   const mist2 = mist1.clone(); mist2.material = mist1.material.clone(); mist2.material.uniforms.uHaze = U.haze; mist2.material.uniforms.uTime = U.time; mist2.material.uniforms.uOpacity.value = 0.5;
   mist2.scale.set(0.6, 0.55, 1); mist2.position.set(0, -1.5, -40); mist2.renderOrder = -17; B0.add(mist2);
 
@@ -283,9 +295,10 @@ async function build() {
     const y = R + i * R * 1.85;
     logs.push(mat(0, y, D / 2, W + 0.5, 1, 1), mat(0, y, -D / 2, W + 0.5, 1, 1));
     const y2 = y + R * 0.92;
-    if (i < NL - 1 || true) logs.push(mat(-W / 2, y2, 0, D + 0.5, 1, 1, 0, Math.PI / 2, 0), mat(W / 2, y2, 0, D + 0.5, 1, 1, 0, Math.PI / 2, 0));
+    // the top side logs sat half above the wall, so their ends stuck out as two knobs at the roof edge (Shifat: remove)
+    if (i < NL - 1) logs.push(mat(-W / 2, y2, 0, D + 0.5, 1, 1, 0, Math.PI / 2, 0), mat(W / 2, y2, 0, D + 0.5, 1, 1, 0, Math.PI / 2, 0));
     for (const sx of [-1, 1]) ends.push(mat(sx * (W / 2 + 0.25), y, D / 2, R, R, 1, 0, Math.PI / 2 * sx, 0), mat(sx * (W / 2 + 0.25), y, -D / 2, R, R, 1, 0, Math.PI / 2 * sx, 0));
-    for (const sz of [-1, 1]) ends.push(mat(-W / 2, y2, sz * (D / 2 + 0.25), R, R, 1, 0, sz > 0 ? 0 : Math.PI, 0), mat(W / 2, y2, sz * (D / 2 + 0.25), R, R, 1, 0, sz > 0 ? 0 : Math.PI, 0));
+    if (i < NL - 1) for (const sz of [-1, 1]) ends.push(mat(-W / 2, y2, sz * (D / 2 + 0.25), R, R, 1, 0, sz > 0 ? 0 : Math.PI, 0), mat(W / 2, y2, sz * (D / 2 + 0.25), R, R, 1, 0, sz > 0 ? 0 : Math.PI, 0));
   }
   const wallTop = R + (NL - 1) * R * 1.85 + R * 0.92;
   // gables on the left and right: shorter logs stacked up to the ridge
@@ -382,8 +395,8 @@ async function build() {
   const mk = (t, n, o) => { const g = leafGeo.clone(); g.scale(1, t.userData.aspect, 1); const m = new THREE.InstancedMesh(g, cardMat(t, { cut: 0.5, ...o }), n); m.frustumCulled = false; fgGroup.add(m); return m; };
   // plant masses: few, big and simple (notes/style.md), framing the lower corners like the bracken under real pines
   const masses = [mk(tMass1, 3, { sway: 0.012, rustle: 0.0 }), mk(tMass2, 3, { sway: 0.012, rustle: 0.0 })];
-  const bough = mk(tBough, 2, { sway: 0.07, rustle: 0.06, hang: 1 });
-  const bigPine = mk(tPine, 2, { sway: 0.015 });
+  const bough = mk(tBough, 2, { sway: 0.07, rustle: 0.06, hang: 1 }); bough.visible = false; // the hanging corner boughs are gone (Shifat: rm these)
+  const bigPine = mk(tPine, 2, { sway: 0.015 }); bigPine.visible = false; // the dark framing trunks read as a different pine and crowded the top corners (Shifat)
   // long grass: one instanced draw of alpha-tested painted clumps that live in the world, not in the frame
   // only long curvy blades (Shifat): two clean painted clumps, 3 flat values, no tufts, no seed heads
   const NG = LOW ? 150 : 210; // per card, so 2 x NG clumps
@@ -464,9 +477,9 @@ async function build() {
       const w = h / t.userData.aspect * (1.25 + gr() * 0.4) * (gr() < 0.5 ? -1 : 1);
       const far = THREE.MathUtils.clamp((-z) / 9, 0, 1);
       m.setMatrixAt(j, mat(x, GROUND - 0.04, z, w, h / t.userData.aspect, 1, 0, (gr() - 0.5) * 0.5, (gr() - 0.5) * 0.1));
-      const v = THREE.MathUtils.lerp(0.95, 0.84, gr()) * (z > 3 ? 0.8 : 1); m.setColorAt(j, new THREE.Color().setRGB(v, v, v * 0.97).lerp(PAL[0].haze, 0.04 + far * 0.3));
+      const v = THREE.MathUtils.lerp(1.0, 0.9, gr()) * (z > 3 ? 0.9 : 1); // nearest rows a touch darker for depth, never near-black m.setColorAt(j, new THREE.Color().setRGB(v, v, v * 0.97).lerp(PAL[0].haze, 0.04 + far * 0.3));
     }
-    for (const m of lgs) { m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true; }
+    for (const m of lgs) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
   };
 
   // ----- hit proxies -----
