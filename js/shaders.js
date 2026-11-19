@@ -1,4 +1,4 @@
-// GLSL for Above the Pines. All colour math is done in sRGB on purpose: the paintings are
+// GLSL for Love Letter. All colour math is done in sRGB on purpose: the paintings are
 // already graded, so the shaders only tint, shade in 3 steps and add depth haze.
 
 export const INST = /* glsl */ `

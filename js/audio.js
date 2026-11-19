@@ -1,4 +1,4 @@
-// Ambient sound for Above the Pines.
+// Ambient sound for Love Letter.
 // Real CC0 recordings (see SOUNDS.md). Nothing plays before the first tap or click.
 // Three beds crossfade by scroll: forest (house), air (balloon), night + pad (letter).
 import { bindInk } from './ink-button.js';

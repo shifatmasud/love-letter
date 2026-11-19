@@ -1,4 +1,4 @@
-// Above the Pines: one continuous painted scene told in 3 beats.
+// Love Letter: one continuous painted scene told in 3 beats.
 // Hybrid: real 3D subjects (house, balloon, letter, hero leaves) with painted maps and thin ink,
 // over painted 2D layers placed in depth (sky, far pines, clouds).
 // One requestAnimationFrame drives Lenis, the scene and the render.

@@ -1,4 +1,4 @@
-# Builds the painted textures for Above the Pines.
+# Builds the painted textures for Love Letter.
 # Ink linework and hatching are baked in here, so the GPU only samples them.
 import math, random, os
 import numpy as np
