@@ -64,6 +64,8 @@ const U = {
   warm: { value: PAL[0].warm.clone() }, cool: { value: PAL[0].cool.clone() },
   ink: { value: PAL[0].ink.clone() }, haze: { value: PAL[0].haze.clone() },
   ptr: { value: new THREE.Vector2(9, 9) }, aspect: { value: 1 },
+  // header band in drawing-buffer px from the top: [buffer height, band bottom]. Clouds thin out inside it (see cardFrag uClearTop)
+  hdr: { value: new THREE.Vector2(1, 0) },
 };
 
 // ---------- textures ----------
@@ -110,7 +112,7 @@ function cardMat(map, o = {}) {
       uInkFade: { value: o.inkFade ?? 0 }, uTexel: { value: new THREE.Vector2(1 / (map.image?.width || 1024), 1 / (map.image?.height || 1024)) },
       uBright: { value: o.bright ?? 1 }, uFadeTop: { value: o.fadeTop ?? 0 }, uFadeBot: { value: o.fadeBot ?? 0 },
       uTime: U.time, uSway: { value: reduce ? 0 : (o.sway ?? 0) }, uRustle: { value: o.rustle ?? 0 },
-      uHang: { value: o.hang ?? 0 }, uPtr: U.ptr, uAspect: U.aspect, uBend: { value: o.bend ?? 0 },
+      uHang: { value: o.hang ?? 0 }, uFog: { value: o.fog ?? 0 }, uClearTop: { value: o.clearTop ?? 0 }, uHdr: U.hdr, uPtr: U.ptr, uAspect: U.aspect, uBend: { value: o.bend ?? 0 },
     },
     vertexShader: S.cardVert, fragmentShader: S.cardFrag,
     transparent: !o.cut, depthWrite: !!o.cut, side: THREE.DoubleSide,
@@ -260,9 +262,11 @@ async function build() {
     [-1.2, -31, 23, 0.8], [2.8, -34, 24, 0.78], [-9.5, -33, 24, 0.78], [12.5, -33, 24, 0.78], [-22, -32, 24, 0.78], [23, -30, 24, 0.78], [-5.5, -36, 25, 0.76], [7.8, -37, 25, 0.76],
   ].slice(0, LOW ? 24 : 32);
   { // denser forest (Shifat): extra pines around the house and in the back, kept off the house's sight line
-    const pr = mulberry(57); const extra = LOW ? 18 : 30;
+    // more pines (Shifat, again): 30 -> 64 extra (18 -> 36 on low-end), half of them in the midground around the house. Still one
+    // instanced draw with the same painted pine, so only size, value and haze change with distance.
+    const pr = mulberry(57); const extra = LOW ? 36 : 64;
     for (let i = 0; i < extra; i++) {
-      const back = i % 3 !== 0; const z = back ? -26 - pr() * 18 : -8.5 - pr() * 9;
+      const back = i % 2 !== 0; const z = back ? -26 - pr() * 18 : -8.5 - pr() * 9;
       let x = (pr() * 2 - 1) * (back ? 30 : 16); if (!back && Math.abs(x) < 4.2) x = Math.sign(x || 1) * (4.2 + pr() * 2);
       pines.push([x, z, (back ? 21 : 14) + pr() * 4, back ? 0.78 : 0.95]);
     }
@@ -290,11 +294,14 @@ async function build() {
   const house = new THREE.Group(); house.position.set(0.35, -0.62, -4); house.rotation.y = -0.52; B0.add(house); house.name = 'L4 house';
   onLayout(() => { house.scale.setScalar(THREE.MathUtils.clamp(camera.aspect * 1.2, 0.55, 1)); B0.position.set(0, 0, 0); }); // phones: the house shrinks to fit the width, it never moves
   centre(house, 0, (dx, dy) => { B0.position.x += dx; B0.position.y += dy; const fg = B0.userData.fg; if (fg) fg.position.set(-B0.position.x, -B0.position.y, 0);
-    house.updateWorldMatrix(true, true); const hb = new THREE.Box3().setFromObject(house); hb.min.sub(B0.position); hb.max.sub(B0.position); hb.min.y -= root.position.y; hb.max.y -= root.position.y;
+    house.updateWorldMatrix(true, true);
+    // only the visible house: the invisible tap box (houseHit) reaches 0.6 below the floor, so it set hb.min.y, no real part counted as a
+    // foot, hb.feet stayed empty and the grass height cap never ran (that is why tall grass covered the house)
+    const hb = new THREE.Box3(); house.traverse((o) => { if (o.isMesh && o.visible) hb.union(new THREE.Box3().setFromObject(o)); }); hb.min.sub(B0.position); hb.max.sub(B0.position); hb.min.y -= root.position.y; hb.max.y -= root.position.y;
     // the house's real foot: the parts that stand on the ground (walls, porch deck, posts), not the porch roof that hangs out in front
     hb.feet = []; house.traverse((o) => { if (!o.isMesh || !o.visible) return; const b = new THREE.Box3().setFromObject(o); b.min.sub(B0.position); b.max.sub(B0.position); b.min.y -= root.position.y;
       if (b.min.y < hb.min.y + 0.15) hb.feet.push({ x0: b.min.x, x1: b.max.x, z: b.max.z }); });
-    B0.userData.layoutGrass?.(hb); });
+    B0.userData.hb = hb; B0.userData.layoutGrass?.(hb); });
   const R = 0.15, W = 3.8, D = 2.9, NL = 9;
   const logGeo = new THREE.CylinderGeometry(R, R, 1, 24, 1, true); logGeo.rotateZ(Math.PI / 2);
   const logs = []; const ends = [];
@@ -410,7 +417,7 @@ async function build() {
   // only long curvy blades (Shifat): two clean painted clumps, 3 flat values, no tufts, no seed heads
   const NG = LOW ? 520 : 760; // per card, so 2 x NG clumps (rows x columns of the ground grid below)
   const lgs = [tLong, tLong2].map((t, k) => { const g = new THREE.PlaneGeometry(1, 1, 1, 4); g.translate(0, 0.5, 0); g.scale(1, t.userData.aspect, 1);
-    const m = new THREE.InstancedMesh(g, cardMat(t, { cut: 0.5, sway: 0.08, rustle: 0.03, bend: 0.6 }), NG); m.frustumCulled = false; m.name = k ? 'longgrass2' : 'longgrass'; B0.add(m); return m; });
+    const m = new THREE.InstancedMesh(g, cardMat(t, { cut: 0.5, sway: 0.08, rustle: 0.03, bend: 0.6, fog: 1 }), NG); m.frustumCulled = false; m.name = k ? 'longgrass2' : 'longgrass'; B0.add(m); return m; });
   const lg = lgs[0];
   const floor = card(tGround, 1, { cut: 0.5, tint: 0xb9b2a0 }); floor.geometry = leafGeo.clone(); floor.geometry.scale(1, tGround.userData.aspect, 1);
   const floorMesh = new THREE.InstancedMesh(floor.geometry, floor.material, 3); floorMesh.frustumCulled = false;
@@ -431,12 +438,13 @@ async function build() {
     const [m1, m2] = masses; const fk = THREE.MathUtils.clamp((camera.aspect - 0.46) / (1.6 - 0.46), 0, 1);
     // [mesh, i, z, phone (cx, bottom, h), desk (cx, bottom, h), flip, tone, haze]  cx/bottom in NDC, h = NDC height
     const MON = [
-      [m1, 0, 5.2, [-1.2, -1.14, 0.95], [-0.9, -1.18, 1.36], 1, 0.62, 0],
-      [m2, 0, 5.0, [1.18, -1.12, 0.85], [0.885, -1.12, 0.98], -1, 0.66, 0],
-      [m1, 1, 5.6, [0.62, -1.3, 0.44], [0.6, -1.43, 0.99], -1, 0.56, 0],
-      [m2, 1, 2.4, [-0.98, -1.02, 0.4], [-0.94, -1.04, 0.6], 1, 0.82, 0.05],
-      [m2, 2, 2.2, [1.0, -1.0, 0.34], [0.975, -0.99, 0.51], -1, 0.85, 0.06],
-      [m1, 2, 2.6, [-0.32, -1.34, 0.32], [-0.245, -1.36, 0.47], 1, 0.8, 0.05],
+      // phone: big leaves come in from both sides and stand above the grass (they were centred past the edge, 40 px showed)
+      [m1, 0, 5.2, [-0.78, -1.16, 1.02], [-0.9, -1.18, 1.36], 1, 0.62, 0],
+      [m2, 0, 5.0, [0.8, -1.14, 0.94], [0.885, -1.12, 0.98], -1, 0.66, 0],
+      [m1, 1, 5.6, [0.42, -1.3, 0.5], [0.6, -1.43, 0.99], -1, 0.56, 0],
+      [m2, 1, 2.4, [-0.9, -1.0, 0.5], [-0.94, -1.04, 0.6], 1, 0.82, 0.05],
+      [m2, 2, 2.2, [0.92, -0.98, 0.44], [0.975, -0.99, 0.51], -1, 0.85, 0.06],
+      [m1, 2, 2.6, [-0.3, -1.34, 0.4], [-0.245, -1.36, 0.47], 1, 0.8, 0.05],
     ];
     const rects = [];
     for (const [m, i, z, ph, dk, flip, tone, hz] of MON) {
@@ -447,6 +455,7 @@ async function build() {
       const wN = w / (q.Wd / 2); rects.push({ x0: cx - wN / 2, x1: cx + wN / 2, y0: by, y1: by + h, z });
     }
     B0.userData.frameRects = rects;
+    if (B0.userData.hb) B0.userData.layoutGrass?.(B0.userData.hb); // grass needs the monstera rects, which exist only from here
     a = at(6.5);
     const bk = THREE.MathUtils.clamp(camera.aspect / 1.6, 0.7, 1); // the boughs sit behind the nav, so white marks read on dark needles
     bough.setMatrixAt(0, mat(-a.Wd * 0.52, a.H / 2 + 0.02, 6.5, 0.8 * bk, -0.8 * bk, 1, 0, 0, 0.35)); tint(bough, 0, 0.9);
@@ -471,7 +480,7 @@ async function build() {
     const N = NG * 2, FILL = LOW ? 120 : 160, R = LOW ? 20 : 24, RF = LOW ? 11 : 14, Cn = Math.floor((N - FILL) / (R + RF));
     const sN = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.2 / hc, sF = 1 / 70; // 1/distance at the frame bottom (rest camera, with room for the tilt) and at the far end of the ground
     const tx = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * Math.max(camera.aspect, 0.4) * 1.18;
-    const ox = -B0.position.x;
+    const ox = -B0.position.x, tanH = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
     for (let i = 0; i < N; i++) {
       const m = lgs[i % 2]; const j = i >> 1; const t = m === lg ? tLong : tLong2;
       const row = Math.floor(i / Cn), col = i % Cn;
@@ -485,17 +494,27 @@ async function build() {
         x = ox + d * tx * (((col + (row % 2) * 0.5 + gr() * 0.9) / Cn) * 2 - 1) + (gr() - 0.5) * 0.4; }
       const z = 10 - d;
       // tall enough to hide the ground up to the next row, seen from the crane's highest hero height (camera at 2.2 x rest height)
+      const wf = (1.6 + gr() * 0.5) * (gr() < 0.5 ? -1 : 1);
       let h = Math.max(THREE.MathUtils.lerp(0.75, 1.3, gr()), d * ((sN - sF) / R) * hc * 2.6 * THREE.MathUtils.lerp(1, 1.35, gr()));
       if (row >= R && i < N - FILL) h = Math.max(h, THREE.MathUtils.lerp(1.9, 2.6, gr())); // far rows: tall enough to close the gaps seen from the crane
+      // Monstera root cause ("where monstera?"): the grass grid starts at the frame bottom (z about 8.3) and the monstera stand at
+      // z 2.2 to 5.6, so on phone the clumps in front of them were taller than the plants' whole height on screen (0% visible).
+      // A clump in front of a monstera now keeps its tips in the lower 30% of that plant: grass still hides its base, the leaves stand above it.
+      for (const r of (B0.userData.frameRects || [])) {
+        if (z <= r.z) continue;
+        const w0 = h / t.userData.aspect * wf; const k = d * tanH, xs = (x - ox) / (k * camera.aspect), hw = Math.abs(w0) / 2 / (k * camera.aspect), inset = (r.x1 - r.x0) * 0.12;
+        if (xs + hw < r.x0 + inset || xs - hw > r.x1 - inset) continue;
+        const topN = r.y0 + 0.3 * (r.y1 - r.y0); h = Math.min(h, Math.max(0.04, topN * k + hc)); }
       const inX = x > hb.min.x - 0.5 && x < hb.max.x + 0.5;
       if (inX) { // tips stop at the sight line to the house's foot right behind this clump (so the grass never covers the house)
         let fz = -Infinity; for (const f of hb.feet) if (x > f.x0 - 0.5 && x < f.x1 + 0.5) fz = Math.max(fz, f.z);
         if (fz > -Infinity && z >= fz) { const lim = hc * (1 - d / (10 - fz)) - 0.01; h = Math.min(h, Math.max(0.04, lim)); } }
-      const w = h / t.userData.aspect * (1.6 + gr() * 0.5) * (gr() < 0.5 ? -1 : 1);
-      const far = THREE.MathUtils.clamp((-z) / 9, 0, 1);
+      const w = h / t.userData.aspect * wf;
       m.setMatrixAt(j, mat(x, GROUND - 0.04, z, w, h / t.userData.aspect, 1, 0, (gr() - 0.5) * 0.5, (gr() - 0.5) * 0.1));
       const v = THREE.MathUtils.lerp(1.0, 0.9, gr()) * (z > 3 ? 0.9 : 1); // nearest rows a touch darker for depth, never near-black
-      m.setColorAt(j, new THREE.Color().setRGB(v, v, v * 0.97).lerp(PAL[0].haze, 0.04 + far * 0.3));
+      // Grass fog root cause: this tint was the grass's only haze. It stopped growing at z -9 (0.34 max) and is a multiply, so the
+      // dark ink never faded; the floor reaches 0.85 by z -84 and the pines behind fade too. Distance fog is now a real mix in the shader (uFog).
+      m.setColorAt(j, new THREE.Color().setRGB(v, v, v * 0.97).lerp(PAL[0].haze, 0.04));
     }
     for (const m of lgs) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
   };
@@ -608,7 +627,9 @@ async function buildBalloon(glowT) {
   ];
   const fg = [];
   for (const [k, z, fx, fy, sh, a, kind, ro, haze, flip, night] of defs) {
-    const m = cc(CL[k], { haze, tint: 0xffffff, opacity: 1, inkFade: z < 0 ? Math.min(0.85, Math.max(0, (-z - 15) / 30)) : 0, fadeBot: z < 0 && k !== 'sea' ? 0.32 : 0 }, flip); m.renderOrder = ro; place(m, z, fx, fy, sh, a, kind);
+    // header contrast root cause: white cloud cards drift through the top band behind the white header on the climb and in the
+    // balloon beat (1.3:1 at scroll 0.5 and 1.25). Clouds now thin out inside that band, so the deep top sky shows there (scene only, no UI shadow).
+    const m = cc(CL[k], { clearTop: 1, haze, tint: 0xffffff, opacity: 1, inkFade: z < 0 ? Math.min(0.85, Math.max(0, (-z - 15) / 30)) : 0, fadeBot: z < 0 && k !== 'sea' ? 0.32 : 0 }, flip); m.renderOrder = ro; place(m, z, fx, fy, sh, a, kind);
     nightCards.push([m, m.material.uniforms.uTint.value.clone(), night]); if (z > 0) fg.push(m);
   }
 
@@ -716,6 +737,9 @@ function resize() {
   { const k = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / Math.tan(THREE.MathUtils.degToRad(20)); CAM_Y[1] = 46 * k; CAM_Y[2] = 80 * k; }
   renderer.setSize(w, h, false);
   U.aspect.value = camera.aspect;
+  { const pr = renderer.getPixelRatio(), mk = document.querySelector('.hdr-fix .mark'), sb = document.querySelector('#sound');
+    const bot = Math.max(mk ? mk.getBoundingClientRect().bottom : 60, sb ? sb.getBoundingClientRect().bottom : 60);
+    U.hdr.value.set(h * pr, (bot + 10) * pr); }
   const pxPerUnitAt14 = (h * DPR) / vh(14);
   // ink width: about 1.4 device px on the subjects, whatever the screen
   for (const m of lineMats) m.uniforms.uWidth.value = m.userData.base * Math.max(0.7, Math.min(1.6, 90 / pxPerUnitAt14));

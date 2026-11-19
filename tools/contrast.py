@@ -15,7 +15,7 @@ async def main():
             pg = await b.new_page(viewport={'width': w, 'height': h}, device_scale_factor=dpr)
             await pg.goto('http://127.0.0.1:8793/', wait_until='load')
             await pg.wait_for_function('window.__pines && window.__pines.ready', timeout=120000)
-            for P in [0, 0.5, 1, 1.25, 1.5, 1.75, 2]:
+            for P in (json.loads(sys.argv[1]) if len(sys.argv) > 1 else [0, 0.5, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 99]):
                 await pg.evaluate(f'() => __pines.lenis.scrollTo({P} * (document.querySelector("#stage").clientHeight || innerHeight), {{ immediate: true }})')
                 await pg.wait_for_timeout(2500)
                 info = await pg.evaluate('''(()=>{const r=[];for(const s of ['.mark','#sound']){const e=document.querySelector(s);if(e&&!r.find(x=>x.s===s)){const b=e.getBoundingClientRect();if(b.width>0)r.push({s,b:[b.x,b.y,b.width,b.height],c:getComputedStyle(e).color});}}return r;})()''')

@@ -11,12 +11,12 @@
 <meta name="twitter:card" content="summary">
 <meta name="application-name" content="Love Letter">
 <meta name="theme-color" content="#e9c79a">
-<link rel="preload" href="/fonts/AlloRound.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/AlloRound.woff2?v=8efe58f7" as="font" type="font/woff2" crossorigin>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.min.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.187.0/examples/jsm/","motion":"https://cdn.jsdelivr.net/npm/motion@14.14.0/+esm","lenis":"https://cdn.jsdelivr.net/npm/lenis@1.3.27/dist/lenis.mjs"}}</script>
 <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.min.js">
 <style>
 /* Allo by Josh Puckett (allo.joshpuckett.me), SIL OFL 1.1. Loaded the same way as shifatmasud/cost-of-design. */
-@font-face{font-family:"Allo Round";src:url("/fonts/AlloRound.woff2") format("woff2");font-weight:400 700;font-display:swap}
+@font-face{font-family:"Allo Round";src:url("/fonts/AlloRound.woff2?v=8efe58f7") format("woff2");font-weight:400 700;font-display:swap}
 :root{--ink:#332b29;--cream:#fff8ea;--r:36px;--font:"Allo Round",system-ui,-apple-system,"Segoe UI",sans-serif;
   /* Surface Tension tokens (shifatmasud/surface-tension src/styles/tokens.css) */
   --pad-x:max(5vw,24px);--s2:16px;--s3:24px;--s4:40px;--s5:64px;--fs-small:12.5px}
@@ -36,7 +36,7 @@ a{color:inherit}
 .stage canvas{display:block;width:100%;height:100%;touch-action:pan-y;outline:none}
 /* painted glow and film look: cheap CSS layers, no full-screen post pass */
 .stage .vig{position:absolute;inset:0;pointer-events:none;background:radial-gradient(120% 90% at 50% 42%,rgba(0,0,0,0) 55%,rgba(24,16,22,.34) 100%)}
-.stage .grain{position:absolute;inset:-60px;pointer-events:none;background:url(/tex/grain.png) 0 0/160px 160px;opacity:.22;mix-blend-mode:overlay;animation:grain 1s steps(6) infinite}
+.stage .grain{position:absolute;inset:-60px;pointer-events:none;background:url(/tex/grain.png?v=2fd29717) 0 0/160px 160px;opacity:.22;mix-blend-mode:overlay;animation:grain 1s steps(6) infinite}
 @keyframes grain{0%{transform:translate(0,0)}17%{transform:translate(-23px,11px)}33%{transform:translate(17px,-29px)}50%{transform:translate(-9px,31px)}67%{transform:translate(29px,7px)}83%{transform:translate(-31px,-17px)}100%{transform:translate(0,0)}}
 .low .stage .grain{animation:none}
 .stage .veil{position:absolute;inset:0;background:#d9b98f;pointer-events:none;transition:opacity 1.2s ease}
