@@ -46,14 +46,19 @@ uniform float uBend, uFog;
 varying vec2 vUv;
 varying vec3 vTint;
 varying float vFog;
-#ifdef FOOT
-uniform mat4 uFootM; // ground space -> house space, so the footprint test follows the house's place, turn and scale
-varying vec2 vFoot;
+#ifdef GMAP
+uniform vec4 uGMapS; // ground -> map space (as layoutGrass): house x, house z, 1/house scale, front foot z
+uniform vec2 uGMapK; // map z at the front foot, stretch from there to the monstera line
+uniform vec4 uGMapB; // map bounds: x0, z1, 1/width, 1/depth
+varying vec2 vGm;
 #endif
 void main(){
   vUv = uv;
-  #ifdef FOOT
-    vFoot = (uFootM * (IM * vec4(position, 1.0))).xz; // rest pose (before sway), so the mask edge stays still
+  #ifdef GMAP
+    vec2 gp = (IM * vec4(position, 1.0)).xz; // rest pose (before sway), so the mask edge stays still
+    vec2 gq = vec2(uGMapS.x + (gp.x - uGMapS.x) * uGMapS.z,
+                   gp.y <= uGMapS.w ? uGMapS.y + (gp.y - uGMapS.y) * uGMapS.z : uGMapK.x + (gp.y - uGMapS.w) * uGMapK.y);
+    vGm = vec2((gq.x - uGMapB.x) * uGMapB.z, (uGMapB.y - gq.y) * uGMapB.w);
   #endif
   // ground fog for the grass (uFog 1): the same depth ramp as the moss floor, so far clumps melt into the haze like the floor and
   // pines behind them, plus a low mist that wraps the clump bases from the house back. The nearest rows stay clear.
@@ -96,16 +101,14 @@ uniform vec2 uTexel;
 varying vec2 vUv;
 varying vec3 vTint;
 varying float vFog;
-#ifdef FOOT
-uniform vec4 uFoot; // house footprint in house space: centre xz, half size xz (base bounds plus a small margin)
-uniform float uFootR; // corner radius
-varying vec2 vFoot;
+#ifdef GMAP
+uniform sampler2D uGMap; // the grass map: black = no grass
+varying vec2 vGm;
 #endif
 void main(){
-  #ifdef FOOT
-    // no grass inside the house footprint: rounded-rectangle SDF, so blades stop exactly at the walls and porch (no bare ring)
-    vec2 fq = abs(vFoot - uFoot.xy) - uFoot.zw + uFootR;
-    if (length(max(fq, 0.0)) + min(max(fq.x, fq.y), 0.0) - uFootR < 0.0) discard;
+  #ifdef GMAP
+    // blades stop where the map is black (house footprint, the strip in front of it, the monstera band), even if a card reaches in
+    if (texture2D(uGMap, vGm).r < 0.06) discard;
   #endif
   vec4 c = texture2D(uMap, vUv);
   // ink fades with depth: far cards lift their thin dark lines toward the paint around them (style.md)

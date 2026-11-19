@@ -33,6 +33,8 @@ export const V = {
 "tex/door.webp": "d98fc0db",
 "tex/glow.png": "7a0f25be",
 "tex/grain.png": "2fd29717",
+"tex/grass-map.json": "8de7cd58",
+"tex/grass-map.png": "b1cb47be",
 "tex/ground.webp": "74cf9017",
 "tex/letter-low.webp": "43c400fb",
 "tex/letter.webp": "5b96afe5",

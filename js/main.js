@@ -112,9 +112,9 @@ function cardMat(map, o = {}) {
       uBright: { value: o.bright ?? 1 }, uFadeTop: { value: o.fadeTop ?? 0 }, uFadeBot: { value: o.fadeBot ?? 0 },
       uTime: U.time, uSway: { value: reduce ? 0 : (o.sway ?? 0) }, uRustle: { value: o.rustle ?? 0 },
       uFog: { value: o.fog ?? 0 }, uClearTop: { value: o.clearTop ?? 0 }, uHdr: U.hdr, uPtr: U.ptr, uAspect: U.aspect, uBend: { value: o.bend ?? 0 },
-      ...(o.foot ? { uFootM: o.foot.m, uFoot: o.foot.r, uFootR: o.foot.rad } : {}),
+      ...(o.gmap ? { uGMapS: o.gmap.s, uGMapK: o.gmap.k, uGMap: o.gmap.map, uGMapB: o.gmap.b } : {}),
     },
-    vertexShader: S.cardVert, fragmentShader: S.cardFrag, defines: o.foot ? { FOOT: '' } : {},
+    vertexShader: S.cardVert, fragmentShader: S.cardFrag, defines: o.gmap ? { GMAP: '' } : {},
     transparent: !o.cut, depthWrite: !!o.cut, side: THREE.DoubleSide,
   });
   return m;
@@ -154,6 +154,30 @@ function withInk(mesh, scale = 1) {
 const V = new THREE.Vector3(), Q = new THREE.Quaternion(), E = new THREE.Euler(), M4 = new THREE.Matrix4(), SC = new THREE.Vector3();
 function mat(x, y, z, sx, sy, sz, rx = 0, ry = 0, rz = 0) {
   return M4.compose(V.set(x, y, z), Q.setFromEuler(E.set(rx, ry, rz)), SC.set(sx, sy, sz)).clone();
+}
+// grass map: the PNG and its bounds (tex/grass-map.json); a missing map means grass everywhere
+async function loadGrassMap(G) {
+  try {
+    const meta = await (await fetch(asset('/tex/grass-map.json'))).json();
+    const bmp = await createImageBitmap(await (await fetch(asset('/tex/grass-map.png'))).blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+    const cv = document.createElement('canvas'); cv.width = bmp.width; cv.height = bmp.height; const cx = cv.getContext('2d', { willReadFrequently: true });
+    cx.drawImage(bmp, 0, 0); const px = cx.getImageData(0, 0, bmp.width, bmp.height).data;
+    G.w = bmp.width; G.h = bmp.height; G.data = new Uint8Array(G.w * G.h); for (let i = 0; i < G.data.length; i++) G.data[i] = px[i * 4];
+    const [x0, z0, x1, z1] = meta.bounds; G.meta = meta;
+    G.b.value.set(x0, z1, 1 / (x1 - x0), 1 / (z1 - z0)); // uv.x = (x - x0) / w, uv.y = (z1 - z) / h (image top row = far edge)
+    const t = new THREE.Texture(cv); t.flipY = true; t.colorSpace = THREE.NoColorSpace; t.minFilter = t.magFilter = THREE.LinearFilter; t.generateMipmaps = false;
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; t.needsUpdate = true; G.map.value = t;
+  } catch (e) { console.warn('grass map missing', e); const t = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1); t.needsUpdate = true; G.map.value = t; }
+  pre.tick();
+}
+function gmapAt(G, x, z) { // bilinear, same as the shader
+  if (!G.data) return 1;
+  const b = G.b.value, u = (x - b.x) * b.z * G.w - 0.5, v = (b.y - z) * b.w * G.h; // v measured from the bottom row up
+  const row = G.h - 1 - (v - 0.5); // image row (top = 0)
+  const cl = (a, n) => Math.min(n - 1, Math.max(0, a));
+  const x0 = Math.floor(u), y0 = Math.floor(row), fx = u - x0, fy = row - y0;
+  const g = (i, j) => G.data[cl(j, G.h) * G.w + cl(i, G.w)];
+  return ((g(x0, y0) * (1 - fx) + g(x0 + 1, y0) * fx) * (1 - fy) + (g(x0, y0 + 1) * (1 - fx) + g(x0 + 1, y0 + 1) * fx) * fy) / 255;
 }
 function vh(dist) { return 2 * dist * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)); }
 const rnd = (() => { let s = 7; return () => ((s = (s * 16807) % 2147483647) / 2147483647); })();
@@ -304,9 +328,9 @@ async function build() {
     house.traverse((o) => { if (!o.isMesh || !o.visible || o.parent !== house) return;
       if (o.isInstancedMesh) { o.computeBoundingBox(); tb.copy(o.boundingBox); } else { o.geometry.computeBoundingBox(); tb.copy(o.geometry.boundingBox); }
       tb.applyMatrix4(mm.multiplyMatrices(inv, o.matrixWorld)); if (tb.min.y < 0.2) fb.union(tb); });
-    const FM = 0.03; hb.foot = FOOT;
-    FOOT.r.value.set((fb.min.x + fb.max.x) / 2, (fb.min.z + fb.max.z) / 2, (fb.max.x - fb.min.x) / 2 + FM, (fb.max.z - fb.min.z) / 2 + FM);
-    FOOT.m.value.copy(house.matrix).invert(); // grass lives in B0 space, the house is B0's child
+    // footprint in house space (read by tools/bake_grass_map.py to paint the house hole into the grass map)
+    hb.s = house.scale.x; hb.fp = { x0: fb.min.x, x1: fb.max.x, z0: fb.min.z, z1: fb.max.z, hx: house.position.x, hz: house.position.z, ry: house.rotation.y,
+      zk: Math.max(...hb.feet.map((f) => f.z), hb.min.z) }; // zk: the house's front foot, in ground space
     B0.userData.hb = hb; B0.userData.layoutGrass?.(hb); });
   const R = 0.15, W = 3.8, D = 2.9, NL = 9;
   const logGeo = new THREE.CylinderGeometry(R, R, 1, 24, 1, true); logGeo.rotateZ(Math.PI / 2);
@@ -419,18 +443,21 @@ async function build() {
   const masses = [mk(tMass1, 5, { sway: 0.012, rustle: 0.0 }), mk(tMass2, 5, { sway: 0.012, rustle: 0.0 })];
   // long grass: one instanced draw of alpha-tested painted clumps that live in the world, not in the frame
   // only long curvy blades (Shifat): two clean painted clumps, 3 flat values, no tufts, no seed heads
-  // house footprint mask, shared by both grass cards (filled in by the house's centre() below)
-  const FOOT = { m: { value: new THREE.Matrix4() }, r: { value: new THREE.Vector4(0, 0, 0, 0) }, rad: { value: 0.12 } };
-  const NG = LOW ? 520 : 760; // per card, so 2 x NG clumps (rows x columns of the ground grid below)
+  // grass map (tools/bake_grass_map.py): one top-down PNG over the hero ground, white = grass, black = none, gray = the soft edge.
+  // It lives in map space: world XZ at the desktop house scale. On phones (where the house shrinks) the map shrinks with the house
+  // about the house's place, and the strip from the house's front foot to the monstera line stretches so that line stays put.
+  const GMAP = { s: { value: new THREE.Vector4(0, 0, 1, 0) }, k: { value: new THREE.Vector2(0, 1) }, map: { value: null }, b: { value: new THREE.Vector4(0, 0, 1, 1) }, data: null, w: 0, h: 0 };
+  await loadGrassMap(GMAP);
+  const NG = LOW ? 1100 : 1700; // per card, so up to 2 x NG clumps
   const lgs = [tLong, tLong2].map((t, k) => { const g = new THREE.PlaneGeometry(1, 1, 1, 4); g.translate(0, 0.5, 0); g.scale(1, t.userData.aspect, 1);
-    const m = new THREE.InstancedMesh(g, cardMat(t, { cut: 0.5, sway: 0.08, rustle: 0.03, bend: 0.6, fog: 1, foot: FOOT }), NG); m.frustumCulled = false; m.name = k ? 'longgrass2' : 'longgrass'; B0.add(m); return m; });
+    const m = new THREE.InstancedMesh(g, cardMat(t, { cut: 0.5, sway: 0.08, rustle: 0.03, bend: 0.6, fog: 1, gmap: GMAP }), NG); m.frustumCulled = false; m.name = k ? 'longgrass2' : 'longgrass'; B0.add(m); return m; });
   const lg = lgs[0];
   const floor = card(tGround, 1, { cut: 0.5, tint: 0xb9b2a0 }); floor.geometry = leafGeo.clone(); floor.geometry.scale(1, tGround.userData.aspect, 1);
   const floorMesh = new THREE.InstancedMesh(floor.geometry, floor.material, 3); floorMesh.frustumCulled = false;
   const PLANE = { mass: 1.25 };
   const tint = (m, i, k, h = 0) => { const v = k * (PLANE[m.name] ?? 1); m.setColorAt(i, new THREE.Color().setRGB(v, v * 1.0, v * 0.98).lerp(PAL[0].haze, h)); };
   masses.forEach((m) => (m.name = 'mass')); floorMesh.name = 'floorMesh';
-  const GROUND = -0.66, FGZ = 2.0; // FGZ: grass stops here; nearer is the monstera foreground
+  const GROUND = -0.66; // the monstera band in front has no grass: it is black in the grass map (FGZ in tools/bake_grass_map.py)
   onLayout(() => {
     // frame pieces are placed in camera terms; fgGroup cancels the centring shift of B0 so they stay on the edges
     const at = (z) => { const d = 10 - z; const H = vh(d); return { H, Wd: H * camera.aspect, d }; };
@@ -466,65 +493,41 @@ async function build() {
     tint(floorMesh, 0, 0.9, 0.1); tint(floorMesh, 1, 0.9, 0.12); tint(floorMesh, 2, 0.78);
     for (const m of [...masses, floorMesh]) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
   });
-  // grass is laid after centring (it needs the house's place on screen): the whole ground is grass, but never over the house.
-  // Bare-ground fix: clumps used to be cast from one rest-pose camera, only up to z -10, so the lawn behind the house, the
-  // far ground between the pines and the far ground the crane shot looks down on had no grass at all. Now clumps fill a
-  // jittered grid that is even in screen space for any camera height and tilt: rows even in 1/distance, columns even in
-  // x/distance, from the frame bottom to the far end of the ground, and each clump grows with its distance, so every row is full.
-  // A clump in front of the house may rise only to the sight line from the camera to the house's foot (shorter, never none).
+  // grass is laid after centring. Where it grows comes only from the grass map; how tall is one size for every clump.
+  // Shifat: "Grasses are too long & fighting with house. All grass must be same size." So no random or zone heights: every clump is
+  // GH tall (scaled with the house on phones), the map keeps the house footprint and the strip where its tips would reach the house
+  // base black, and the monstera band in front black. Rows are even in log(distance), so short clumps still close the ground far back.
+  const GH = 0.42, SP = 0.4, DMAX = 56;
   B0.userData.layoutGrass = (hb) => {
-    const gr = mulberry(91); const camY = -B0.position.y; const hc = camY - GROUND;
-    const fr = FOOT.r.value, fm = FOOT.m.value.elements, rad = FOOT.rad.value;
-    const footSD = (x, z) => { const lx = fm[0] * x + fm[4] * GROUND + fm[8] * z + fm[12], lz = fm[2] * x + fm[6] * GROUND + fm[10] * z + fm[14];
-      const qx = Math.abs(lx - fr.x) - fr.z + rad, qz = Math.abs(lz - fr.y) - fr.w + rad;
-      return Math.hypot(Math.max(qx, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qz), 0) - rad; };
-    // RF extra rows even in distance cover the far ground that the crane shot looks down on (rows even in 1/distance are too sparse there)
-    const N = NG * 2, FILL = LOW ? 120 : 160, R = LOW ? 20 : 24, RF = LOW ? 11 : 14, Cn = Math.floor((N - FILL) / (R + RF));
-    const sN = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.2 / hc, sF = 1 / 70; // 1/distance at the frame bottom (rest camera, with room for the tilt) and at the far end of the ground
-    const tx = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * Math.max(camera.aspect, 0.4) * 1.18;
-    const ox = -B0.position.x;
-    for (let i = 0; i < N; i++) {
-      const m = lgs[i % 2]; const j = i >> 1; const t = m === lg ? tLong : tLong2;
-      const row = Math.floor(i / Cn), col = i % Cn;
-      let d, x;
-      if (i >= N - FILL) { // extra layers of short clumps on the strip in front of the house, so the sparse blade tips under its foot line still hide the ground
-        x = THREE.MathUtils.lerp(hb.min.x - 0.3, hb.max.x + 0.3, gr());
-        let fz = hb.max.z; { let m = -Infinity; for (const f of hb.feet) if (x > f.x0 - 0.5 && x < f.x1 + 0.5) m = Math.max(m, f.z); if (m > -Infinity) fz = m; }
-        d = (10 - fz) - 0.12 - gr() * Math.min(5, (10 - fz) * 0.45);
-      } else if (row >= R + RF) { m.setMatrixAt(j, mat(0, -50, 0, 0.001, 0.001, 1)); continue; }
-      else { const sd = row < R ? THREE.MathUtils.lerp(sN, sF, (row + gr()) / R) : 1 / THREE.MathUtils.lerp(14, 66, (row - R + gr()) / RF); d = 1 / sd;
-        x = ox + d * tx * (((col + (row % 2) * 0.5 + gr() * 0.9) / Cn) * 2 - 1) + (gr() - 0.5) * 0.4; }
-      // foreground (Shifat: "no need grass on fg"): rows nearer than FGZ belong to the monstera. Those clumps are not dropped: each one
-      // moves into the midground (FGZ back to z -30), because the tall near rows used to hide the thin spots there. The midground rows
-      // keep their spacing (squeezing the rows back instead opened gaps far back on desktop, measured 6.7%).
-      let moved = false, fillLike = i >= N - FILL;
-      if (10 - d > FGZ) {
-        if (gr() < 0.5) { fillLike = true; // half thicken the short strip in front of the house (the near rows used to cover it)
-          x = THREE.MathUtils.lerp(hb.min.x - 0.3, hb.max.x + 0.3, gr());
-          let fz = hb.max.z; { let mz = -Infinity; for (const f of hb.feet) if (x > f.x0 - 0.5 && x < f.x1 + 0.5) mz = Math.max(mz, f.z); if (mz > -Infinity) fz = mz; }
-          d = (10 - fz) - 0.12 - gr() * Math.min(5, (10 - fz) * 0.45);
-        } else { moved = true; d = 1 / THREE.MathUtils.lerp(1 / (10 - FGZ), 1 / 40, Math.sqrt(gr())); x = ox + d * tx * (gr() * 2 - 1); } // half go further back
+    const gr = mulberry(91), s = hb.s, camY = -B0.position.y, hc = camY - GROUND, fp = hb.fp;
+    // ground (B0) space -> map space, the same in the shader: x and the ground behind the house's front foot scale about the house by 1/s;
+    // from the front foot (zk) to the monstera line (FGZ) z stretches linearly, so the monstera line is FGZ on every screen
+    const FGZ = GMAP.meta?.fgz ?? 2, zk = fp.zk, qk = fp.hz + (zk - fp.hz) / s, k2 = (FGZ - qk) / (FGZ - zk);
+    GMAP.s.value.set(fp.hx, fp.hz, 1 / s, zk); GMAP.k.value.set(qk, k2);
+    const at = (x, z) => gmapAt(GMAP, fp.hx + (x - fp.hx) / s, z <= zk ? fp.hz + (z - fp.hz) / s : qk + (z - zk) * k2);
+    const h = GH * s, wf = 1.85;
+    const tn = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    const tx = tn * Math.max(camera.aspect, 0.4) * 1.25, ox = -B0.position.x;
+    const kz = 1 + h / (hc * 3); // rows close enough that the tips still hide the ground seen from a camera 3 x higher (the crane)
+    const cnt = [0, 0];
+    let d = hc / (tn * 1.25), r = 0;
+    while (d < DMAX && cnt[0] + cnt[1] < NG * 2) {
+      const cw = h / tLong.userData.aspect * wf * SP, n = Math.ceil(2 * d * tx / cw);
+      for (let c = 0; c < n; c++) {
+        const k = (cnt[0] + cnt[1]) % 2, m = lgs[k], t = k ? tLong2 : tLong;
+        const x = ox + d * tx * (((c + (r % 2) * 0.5 + (gr() - 0.5) * 0.8) / n) * 2 - 1);
+        const z = 10 - d * (1 + (gr() - 0.5) * (kz - 1) * 0.9);
+        const flip = gr() < 0.5 ? -1 : 1, yaw = (gr() - 0.5) * 0.5, lean = (gr() - 0.5) * 0.1, v = THREE.MathUtils.lerp(1.0, 0.9, gr());
+        if (gr() >= at(x, z) || cnt[k] >= NG) continue;
+        const j = cnt[k]++;
+        m.setMatrixAt(j, mat(x, GROUND - 0.04, z, h / t.userData.aspect * wf * flip, h / t.userData.aspect, 1, 0, yaw, lean));
+        // Grass fog: distance fog is a real mix in the shader (uFog); this tint only varies the value a little
+        m.setColorAt(j, new THREE.Color().setRGB(v, v, v * 0.97).lerp(PAL[0].haze, 0.04));
       }
-      const z = 10 - d;
-      // tall enough to hide the ground up to the next row, seen from the crane's highest hero height (camera at 2.2 x rest height)
-      const wf = (1.6 + gr() * 0.5) * (gr() < 0.5 ? -1 : 1);
-      let h = Math.max(THREE.MathUtils.lerp(0.75, 1.3, gr()), d * ((sN - sF) / R) * hc * 2.6 * THREE.MathUtils.lerp(1, 1.35, gr()));
-      if ((row >= R || moved) && !fillLike) h = Math.max(h, THREE.MathUtils.lerp(1.9, 2.6, gr())); // far rows: tall enough to close the gaps seen from the crane
-      const inX = x > hb.min.x - 0.5 && x < hb.max.x + 0.5;
-      if (inX) { // tips stop at the sight line to the house's foot right behind this clump (so the grass never covers the house)
-        let fz = -Infinity; for (const f of hb.feet) if (x > f.x0 - 0.5 && x < f.x1 + 0.5) fz = Math.max(fz, f.z);
-        if (fz > -Infinity && z >= fz) { const lim = hc * (1 - d / (10 - fz)) - 0.01; h = Math.min(h, Math.max(0.04, lim)); } }
-      const w = h / t.userData.aspect * wf;
-      // House root cause: placement never tested the house. The only house rule was the sight-line height cap, which runs only for clumps
-      // in front of the house's feet, so clumps whose base fell under the floor and porch kept full height and poked through (measured:
-      // 37 bases inside the footprint, 52 cards reaching into it, all uncapped). Now: no clump with its base inside, and the shader trims the rest at the walls.
-      if (footSD(x, z) < 0) { m.setMatrixAt(j, mat(0, -50, 0, 0.001, 0.001, 1)); continue; }
-      m.setMatrixAt(j, mat(x, GROUND - 0.04, z, w, h / t.userData.aspect, 1, 0, (gr() - 0.5) * 0.5, (gr() - 0.5) * 0.1));
-      const v = THREE.MathUtils.lerp(1.0, 0.9, gr()) * (z > 3 ? 0.9 : 1); // nearest rows a touch darker for depth, never near-black
-      // Grass fog root cause: this tint was the grass's only haze. It stopped growing at z -9 (0.34 max) and is a multiply, so the
-      // dark ink never faded; the floor reaches 0.85 by z -84 and the pines behind fade too. Distance fog is now a real mix in the shader (uFog).
-      m.setColorAt(j, new THREE.Color().setRGB(v, v, v * 0.97).lerp(PAL[0].haze, 0.04));
+      d *= kz; r++;
     }
+    lgs.forEach((m, k) => { for (let j = cnt[k]; j < NG; j++) m.setMatrixAt(j, mat(0, -50, 0, 0.001, 0.001, 1)); });
+    B0.userData.grassN = { clumps: cnt[0] + cnt[1], rows: r, farthest: +d.toFixed(1), h: +h.toFixed(3) };
     for (const m of lgs) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
   };
 
@@ -985,7 +988,7 @@ lenis.on('scroll', theme);
 // the one loop starts now, so Lenis scrolls even while the paintings load
 requestAnimationFrame(frame);
 // everything loads behind the preloader: scroll stays locked and the hero text waits until it has slid away
-const PRE_TEX = 25; // paintings, glow, puff and shaft (29 in a test run, minus the bough, far ridge, mid ridge and log-end paintings)
+const PRE_TEX = 26; // paintings, glow, puff and shaft (29 in a test run, minus the bough, far ridge, mid ridge and log-end paintings)
 lenis.stop();
 pre.add(PRE_TEX + Sound.count + 1 + 3);
 const fontsP = (document.fonts ? document.fonts.ready : Promise.resolve()).catch(() => {}).then(() => pre.tick());
