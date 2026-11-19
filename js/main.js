@@ -46,7 +46,7 @@ const scene = new THREE.Scene();
 // near 2.5 / far 130: the nearest card (the hanging boughs) is 3.4 units away and the farthest painting 105. The old
 // near plane of 0.1 (far 400) put almost all depth precision in front of the lens, so on phones with a 16-bit depth
 // buffer the house logs, roof and ink shells fought. Precision at the house is now about 40 times finer.
-const camera = new THREE.PerspectiveCamera(40, 1, 2.5, 130);
+const camera = new THREE.PerspectiveCamera(40, 1, 0.8, 130); // near 0.8: 2.5 clipped the ground and grass at the frame bottom (the 'gap'); 0.8 still keeps 8x the depth detail of 0.1 at the house
 camera.position.set(0, 0, 10);
 const root = new THREE.Group(); // everything that scrolls
 scene.add(root);
