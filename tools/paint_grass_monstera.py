@@ -20,6 +20,17 @@ C = [tuple(int(v) for v in DARK) + (255,), tuple(int(v) for v in MID) + (255,), 
 RIM = tuple(int(min(255, v * 1.18 + 18)) for v in LIT) + (255,)
 
 S = 4  # supersample
+INK = tuple(int(v * 0.42) for v in DARK) + (255,)  # colored ink, a deep green, never pure black
+
+
+def outline(im, px=4):
+    # one ink line around the whole group's outer silhouette only: no lines inside the group
+    a = np.array(im).copy()
+    al = Image.fromarray(np.where(a[:, :, 3] > 110, 255, 0).astype('uint8'))
+    grown = np.array(al.filter(ImageFilter.MaxFilter(px * 2 + 1))) > 128
+    ring = grown & (a[:, :, 3] <= 110)
+    a[ring] = INK
+    return Image.fromarray(a)
 
 
 def blade(d, x0, y0, h, w, bend, curl, col, rim=None):
@@ -74,13 +85,14 @@ def grass_card(path, W=512, H=768, blades=13):
         if layer == 2:
             blade(d, x0 - w, base, h * 0.7, w * 0.9, bend * 0.8, curl, C[2], RIM)
     im = im.resize((W, H), Image.LANCZOS)
+    a = np.array(im); a[:, :, 3] = np.where(a[:, :, 3] > 110, 255, 0); im = outline(Image.fromarray(a), 3)
     im.save(path, 'WEBP', quality=88, method=6)
     print('wrote', path)
 
 
 def posterize_leaf(img):
     al0 = np.array(img.convert('RGBA'))[:, :, 3].astype(float)
-    a = np.array(img.convert('RGBA').filter(ImageFilter.GaussianBlur(3))).astype(float)
+    a = np.array(img.convert('RGBA').filter(ImageFilter.GaussianBlur(9))).astype(float)
     a[:, :, 3] = al0
     lum = a[:, :, :3].mean(2)
     al = a[:, :, 3]
@@ -94,11 +106,11 @@ def posterize_leaf(img):
     src = a[:, :, :3]
     edge = np.array(Image.fromarray(np.where(al0 > 110, 255, 0).astype('uint8')).filter(ImageFilter.MinFilter(9))) < 128
     rim = inside & edge & (np.arange(a.shape[1])[None, :] < a.shape[1] * 0.62)
-    out[rim, :3] = RIM[:3]
+    # no per-leaf rim: inner detail stays minimal, the light edge goes on the whole mass only
     out[:, :, 3] = np.where(al > 110, 255, 0)
     o = Image.fromarray(out.astype('uint8'))
     # flat shapes: smooth the step edges slightly so they read as painted, not pixel noise
-    o = o.filter(ImageFilter.ModeFilter(9))
+    o = o.filter(ImageFilter.ModeFilter(15))
     return o
 
 
@@ -135,7 +147,13 @@ def monstera_clump(path, W=1024, H=1024, seed=1, leaves=7):
         im.alpha_composite(lf, (int(cx - lf.width / 2), int(cy - lf.height / 2)))
     a = np.array(im)
     a[:, :, 3] = np.where(a[:, :, 3] > 120, 255, 0)
-    Image.fromarray(a).save(path, 'WEBP', quality=88, method=6)
+    # light rim on the lit (upper-left) side of the whole mass's silhouette only
+    inside = a[:, :, 3] > 0
+    er = np.array(Image.fromarray((inside * 255).astype('uint8')).filter(ImageFilter.MinFilter(13))) < 128
+    sh = np.zeros_like(inside); sh[6:, 6:] = inside[:-6, :-6]  # pixels whose up-left neighbour is outside = lit edge
+    lit = inside & er & ~sh
+    a[lit, :3] = RIM[:3]
+    outline(Image.fromarray(a), 4).save(path, 'WEBP', quality=88, method=6)
     print('wrote', path)
 
 
