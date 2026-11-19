@@ -1,6 +1,34 @@
 // GLSL for Love Letter. All colour math is done in sRGB on purpose: the paintings are
 // already graded, so the shaders only tint, shade in 3 steps and add depth haze.
 
+
+// ---------- colour grade: "brighter moody" (Shifat's pick) ----------
+// A bright, faded-film print look (Ghibli's Only Yesterday / Whisper of the Heart backgrounds, Kodak Portra prints): lifted blacks,
+// creamy warm highlights, slightly dusty greens and blues, a soft warm/cool split (lavender-cool shadows, cream highlights; never
+// teal and orange). Done as a few lines at the end of each scene shader instead of a full-screen pass, so it costs no extra pass,
+// no render target and keeps the antialiasing. Warm hues (house light, balloon red, letter paper) keep or gain saturation.
+// The additive lights (fireflies, stars, glows) are left ungraded so they stay pure and pop. ?nograde turns it off for comparisons.
+const NOGRADE = typeof location !== 'undefined' && /[?&]nograde\b/.test(location.search);
+const GRADE = NOGRADE ? 'vec3 grade(vec3 c){ return c; }\n' : /* glsl */ `
+vec3 grade(vec3 c){
+  float l = dot(c, vec3(0.299, 0.587, 0.114));
+  float warm = clamp((c.r - c.b) * 2.5, 0.0, 1.0);
+  float green = clamp((c.g - max(c.r, c.b)) * 3.0, 0.0, 1.0);
+  float blue = clamp((c.b - max(c.r, c.g)) * 3.0, 0.0, 1.0);
+  c = mix(vec3(l), c, 1.0 + 0.05 * warm - 0.07 * green - 0.12 * blue);       // dusty greens and blues, warm stays rich
+  c = vec3(0.055, 0.050, 0.060) + c * 0.95;                                   // lifted, slightly lavender blacks
+  l = dot(c, vec3(0.299, 0.587, 0.114));
+  c += vec3(-0.010, 0.000, 0.016) * (1.0 - smoothstep(0.05, 0.5, l));          // cool shadows
+  c += vec3(0.030, 0.018, -0.022) * smoothstep(0.45, 0.95, l);                 // creamy highlights
+  c = c * 1.05;                                                               // a touch brighter overall
+  return min(c, vec3(1.0)) - 0.06 * max(c - 0.86, 0.0);                       // soft shoulder, no hard white clip
+}
+`;
+function G(src) {
+  const i = src.indexOf('void main()'); const j = src.lastIndexOf('}');
+  return src.slice(0, i) + GRADE + src.slice(i, j) + '  gl_FragColor.rgb = grade(gl_FragColor.rgb);\n}' + src.slice(j + 1);
+}
+
 export const INST = /* glsl */ `
 #ifdef USE_INSTANCING
   #define IM instanceMatrix
@@ -14,11 +42,28 @@ export const cardVert = /* glsl */ `
 ${INST}
 uniform float uTime, uSway, uRustle, uHang, uAspect;
 uniform vec2 uPtr;
-uniform float uBend;
+uniform float uBend, uFog;
 varying vec2 vUv;
 varying vec3 vTint;
+varying float vFog;
+#ifdef FOOT
+uniform mat4 uFootM; // ground space -> house space, so the footprint test follows the house's place, turn and scale
+varying vec2 vFoot;
+#endif
 void main(){
   vUv = uv;
+  #ifdef FOOT
+    vFoot = (uFootM * (IM * vec4(position, 1.0))).xz; // rest pose (before sway), so the mask edge stays still
+  #endif
+  // ground fog for the grass (uFog 1): the same depth ramp as the moss floor, so far clumps melt into the haze like the floor and
+  // pines behind them, plus a low mist that wraps the clump bases from the house back. The nearest rows stay clear.
+  vFog = 0.0;
+  if (uFog > 0.0) {
+    float dz = 10.0 - IM[3].z;
+    float fd = 0.85 * pow(clamp((dz - 12.0) / 60.0, 0.0, 1.0), 0.8);
+    float mist = 0.3 * smoothstep(5.0, 13.0, dz) * pow(1.0 - uv.y, 1.5);
+    vFog = uFog * (1.0 - (1.0 - fd) * (1.0 - mist));
+  }
   vec3 p = position;
   // gentle cup for real-geometry leaves (smooth, not faceted)
   p.z += uBend * (-(p.x * p.x) * 0.9 + (p.y + 0.5) * (p.y + 0.5) * -0.35);
@@ -42,14 +87,26 @@ void main(){
   gl_Position = projectionMatrix * viewMatrix * wp;
 }`;
 
-export const cardFrag = /* glsl */ `
+export const cardFrag = G(/* glsl */ `
 uniform sampler2D uMap;
 uniform vec3 uTint, uHaze;
-uniform float uHazeAmt, uOpacity, uCut, uBright, uFadeTop, uFadeBot, uInkFade;
+uniform float uHazeAmt, uOpacity, uCut, uBright, uFadeTop, uFadeBot, uInkFade, uClearTop;
+uniform vec2 uHdr;
 uniform vec2 uTexel;
 varying vec2 vUv;
 varying vec3 vTint;
+varying float vFog;
+#ifdef FOOT
+uniform vec4 uFoot; // house footprint in house space: centre xz, half size xz (base bounds plus a small margin)
+uniform float uFootR; // corner radius
+varying vec2 vFoot;
+#endif
 void main(){
+  #ifdef FOOT
+    // no grass inside the house footprint: rounded-rectangle SDF, so blades stop exactly at the walls and porch (no bare ring)
+    vec2 fq = abs(vFoot - uFoot.xy) - uFoot.zw + uFootR;
+    if (length(max(fq, 0.0)) + min(max(fq.x, fq.y), 0.0) - uFootR < 0.0) discard;
+  #endif
   vec4 c = texture2D(uMap, vUv);
   // ink fades with depth: far cards lift their thin dark lines toward the paint around them (style.md)
   if (uInkFade > 0.0) {
@@ -61,12 +118,14 @@ void main(){
   }
   float a = c.a;
   if (uFadeBot > 0.0) a *= smoothstep(0.0, uFadeBot, vUv.y);
+  if (uClearTop > 0.0) { float fromTop = uHdr.x - gl_FragCoord.y; a *= smoothstep(uHdr.y * 0.9, uHdr.y * 2.2, fromTop); }
   if (uFadeTop > 0.0) a *= smoothstep(1.0, 1.0 - uFadeTop, vUv.y);
   if (uCut > 0.0) { if (a < uCut) discard; a = 1.0; }
   vec3 col = c.rgb * uTint * vTint * uBright;
   col = mix(col, uHaze, uHazeAmt);
+  col = mix(col, uHaze, vFog); // paint and ink fade together, like the far pine rows
   gl_FragColor = vec4(col, a * uOpacity);
-}`;
+}`);
 
 // ---------- toon: 3D subjects with painted maps, 3 soft steps, warm light / cool shadow, hatching ----------
 export const toonVert = /* glsl */ `
@@ -87,7 +146,7 @@ void main(){
   gl_Position = projectionMatrix * viewMatrix * wp;
 }`;
 
-export const toonFrag = /* glsl */ `
+export const toonFrag = G(/* glsl */ `
 uniform sampler2D uMap;
 uniform vec3 uSun, uWarm, uCool, uInk, uHaze, uTint;
 uniform float uHazeAmt, uHatch, uRim, uGlow;
@@ -116,7 +175,7 @@ void main(){
   }
   col = mix(col, uHaze, uHazeAmt);
   gl_FragColor = vec4(col, 1.0);
-}`;
+}`);
 
 // ---------- ink outline: inverted hull, thin, warm-tinted, never washed by glow ----------
 export const lineVert = /* glsl */ `
@@ -129,15 +188,15 @@ void main(){
   wp.xyz += n * uWidth;
   gl_Position = projectionMatrix * viewMatrix * wp;
 }`;
-export const lineFrag = /* glsl */ `
+export const lineFrag = G(/* glsl */ `
 uniform vec3 uInk;
-void main(){ gl_FragColor = vec4(uInk, 1.0); }`;
+void main(){ gl_FragColor = vec4(uInk, 1.0); }`);
 
 // ---------- sky: painted gradient + procedural twinkling stars + tap sparkle ----------
 export const skyVert = /* glsl */ `
 varying vec2 vUv;
 void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.9999, 1.0); }`;
-export const skyFrag = /* glsl */ `
+export const skyFrag = G(/* glsl */ `
 uniform sampler2D uMap;
 uniform float uP, uAspect, uTexAspect, uTime, uStars, uSparkT;
 uniform vec2 uPtr, uSpark;
@@ -164,7 +223,7 @@ void main(){
   float w = smoothstep(0.12, 0.42, sin(q.x * 2.1 + sin(q.y * 1.7) * 1.3) * 0.5 + 0.5 + brush * 1.6 - abs(y - 0.64) * 3.2);
   col = mix(col, mix(vec3(1.0, 0.98, 0.95), vec3(1.0, 0.88, 0.80), k1), w * 0.35 * sunOn);
   // painted zenith: the top of the frame grades to a deeper blue in day and dusk, so the white nav reads on the scene itself
-  float zen = smoothstep(0.80, 0.97, y) * (1.0 - kn) * (1.0 - k1 * (1.0 - kd)); // not in the bright balloon sky, where the nav turns ink
+  float zen = smoothstep(0.78, 0.97, y) * (1.0 - kn); // the header is white and fixed through every beat now, so the balloon sky gets the deep zenith too
   col = mix(col, mix(vec3(0.20, 0.33, 0.60), vec3(0.20, 0.22, 0.46), kd), zen * 0.85);
   col += brush * mix(0.05, 0.03, k2);
   // night: only a faint, cool-rose afterglow stays low on the horizon behind the cloud sea
@@ -187,10 +246,10 @@ void main(){
     col += vec3(1.0, 0.92, 0.78) * s * uStars * (0.4 + r * 0.6);
   }
   gl_FragColor = vec4(col, 1.0);
-}`;
+}`);
 
 // ---------- mist bands between depth layers ----------
-export const mistFrag = /* glsl */ `
+export const mistFrag = G(/* glsl */ `
 uniform vec3 uHaze; uniform float uOpacity, uTime;
 varying vec2 vUv;
 void main(){
@@ -198,7 +257,7 @@ void main(){
   float a = smoothstep(0.0, 0.45, y) * smoothstep(1.0, 0.5, y);
   a *= 0.75 + 0.25 * sin(vUv.x * 9.0 + uTime * 0.08) * sin(vUv.x * 3.7 - uTime * 0.05);
   gl_FragColor = vec4(uHaze, a * uOpacity);
-}`;
+}`);
 export const plainVert = /* glsl */ `
 varying vec2 vUv;
 void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
@@ -207,7 +266,7 @@ void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(p
 export const groundVert = /* glsl */ `
 varying vec3 vWp;
 void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vWp = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }`;
-export const groundFrag = /* glsl */ `
+export const groundFrag = G(/* glsl */ `
 uniform vec3 uHaze, uA, uB;
 varying vec3 vWp;
 float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -224,7 +283,7 @@ void main(){
   float d = clamp((-vWp.z - 6.0) / 90.0, 0.0, 1.0);
   col = mix(col, mix(uHaze, vec3(0.42, 0.55, 0.48), 0.35), pow(d, 0.8) * 0.85); // far floor goes blue-green, then to haze
   gl_FragColor = vec4(col, 1.0);
-}`;
+}`);
 
 // ---------- points: fireflies, dust, smoke, flame (glow sprites sit under the ink) ----------
 export const ptsVert = /* glsl */ `
@@ -245,14 +304,14 @@ void main(){
   if (a < 0.004) discard;
   gl_FragColor = vec4(uColor * a, a);
 }`;
-export const smokeFrag = /* glsl */ `
+export const smokeFrag = G(/* glsl */ `
 uniform sampler2D uMap; uniform vec3 uColor;
 varying float vA;
 void main(){
   float a = texture2D(uMap, gl_PointCoord).r * vA;
   if (a < 0.004) discard;
   gl_FragColor = vec4(uColor, a);
-}`;
+}`);
 
 // ---------- the letter: curled torn paper with flutter, normals from the curl ----------
 export const letterVert = /* glsl */ `
@@ -282,7 +341,7 @@ void main(){
   vN = normalize(mat3(modelMatrix) * n);
   gl_Position = projectionMatrix * viewMatrix * wp;
 }`;
-export const letterFrag = /* glsl */ `
+export const letterFrag = G(/* glsl */ `
 uniform sampler2D uMap;
 uniform vec3 uSun, uWarm, uCool, uHaze, uInk;
 uniform float uHazeAmt;
@@ -304,4 +363,4 @@ void main(){
   col = mix(col, uInk, h * (1.0 - smoothstep(0.26, 0.4, l)) * 0.4);
   col = mix(col, uHaze, uHazeAmt);
   gl_FragColor = vec4(col, 1.0);
-}`;
+}`);

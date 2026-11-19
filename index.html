@@ -11,12 +11,12 @@
 <meta name="twitter:card" content="summary">
 <meta name="application-name" content="Love Letter">
 <meta name="theme-color" content="#e9c79a">
-<link rel="preload" href="/fonts/AlloRound.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/AlloRound.woff2?v=8efe58f7" as="font" type="font/woff2" crossorigin>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.min.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.187.0/examples/jsm/","motion":"https://cdn.jsdelivr.net/npm/motion@14.14.0/+esm","lenis":"https://cdn.jsdelivr.net/npm/lenis@1.3.27/dist/lenis.mjs"}}</script>
 <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.min.js">
 <style>
 /* Allo by Josh Puckett (allo.joshpuckett.me), SIL OFL 1.1. Loaded the same way as shifatmasud/cost-of-design. */
-@font-face{font-family:"Allo Round";src:url("/fonts/AlloRound.woff2") format("woff2");font-weight:400 700;font-display:swap}
+@font-face{font-family:"Allo Round";src:url("/fonts/AlloRound.woff2?v=8efe58f7") format("woff2");font-weight:400 700;font-display:swap}
 :root{--ink:#332b29;--cream:#fff8ea;--r:36px;--font:"Allo Round",system-ui,-apple-system,"Segoe UI",sans-serif;
   /* Surface Tension tokens (shifatmasud/surface-tension src/styles/tokens.css) */
   --pad-x:max(5vw,24px);--s2:16px;--s3:24px;--s4:40px;--s5:64px;--fs-small:12.5px}
@@ -36,13 +36,16 @@ a{color:inherit}
 .stage canvas{display:block;width:100%;height:100%;touch-action:pan-y;outline:none}
 /* painted glow and film look: cheap CSS layers, no full-screen post pass */
 .stage .vig{position:absolute;inset:0;pointer-events:none;background:radial-gradient(120% 90% at 50% 42%,rgba(0,0,0,0) 55%,rgba(24,16,22,.34) 100%)}
-.stage .grain{position:absolute;inset:-60px;pointer-events:none;background:url(/tex/grain.png) 0 0/160px 160px;opacity:.22;mix-blend-mode:overlay;animation:grain 1s steps(6) infinite}
+.stage .grain{position:absolute;inset:-60px;pointer-events:none;background:url(/tex/grain.png?v=2fd29717) 0 0/160px 160px;opacity:.22;mix-blend-mode:overlay;animation:grain 1s steps(6) infinite}
 @keyframes grain{0%{transform:translate(0,0)}17%{transform:translate(-23px,11px)}33%{transform:translate(17px,-29px)}50%{transform:translate(-9px,31px)}67%{transform:translate(29px,7px)}83%{transform:translate(-31px,-17px)}100%{transform:translate(0,0)}}
 .low .stage .grain{animation:none}
 .stage .veil{position:absolute;inset:0;background:#d9b98f;pointer-events:none;transition:opacity 1.2s ease}
 .stage.ready .veil{opacity:0}
 
 /* ---------- header: Cost of Design nav (mark + sound wave button) ---------- */
+/* the header is fixed at the top through the whole page, footer included (Shifat); it sits outside the sheet so the sheet's clip never cuts it */
+.hdr-fix{position:fixed;top:0;left:0;right:0;z-index:50;pointer-events:none}
+.hdr-fix header>*{pointer-events:auto}
 header{position:relative;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:28px 0}
 .mark{position:relative;display:grid;place-items:center;width:48px;height:48px;margin-left:-11px;border-radius:50%;touch-action:pan-y;color:var(--ink);text-decoration:none;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;-webkit-user-drag:none}
 .mark:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
@@ -200,13 +203,14 @@ el.addEventListener('transitionend',fin2);setTimeout(fin2,1400);}
 window.__pre={add:function(n){total+=n||1;},tick:function(n){fin+=n||1;var t=Math.min(.97,fin/Math.max(total,1));if(t>target){target=t;creep=0;}},done:function(f){cb=f;end=true;},get n(){return [fin,total];}};
 raf=requestAnimationFrame(loop);
 })();</script>
+<div class="hdr-fix"><div class="wrap"><header class="on-dark">
+<a class="mark" href="https://shifatmasud-framer.vercel.app/" aria-label="Shifat Masud, portfolio" draggable="false"><i><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 204 204" aria-hidden="true"><path fill="#ffffff" d="M115.66 1.82L166.95 1.82A14 14 0 0 1 176.85 25.72L111.29 91.28A36 36 0 0 1 85.84 101.82L34.55 101.82A14 14 0 0 1 24.65 77.92L90.21 12.36A36 36 0 0 1 115.66 1.82ZM114.16 98.18L165.45 98.18A14 14 0 0 1 175.35 122.08L109.79 187.64A36 36 0 0 1 84.34 198.18L33.05 198.18A14 14 0 0 1 23.15 174.28L88.71 108.72A36 36 0 0 1 114.16 98.18Z"/></svg></i></a>
+<button class="pill pill--sound" id="sound" type="button" aria-label="Sound on" aria-pressed="true"><span class="sroll ink-par"><span class="ir-a"><canvas class="snd-wave" aria-hidden="true"></canvas></span><span class="ir-b"><canvas class="snd-wave" aria-hidden="true"></canvas></span></span><span class="ink" aria-hidden="true"><span class="sroll ink-par"><span class="ir-a"><canvas class="snd-wave" data-inv aria-hidden="true"></canvas></span><span class="ir-b"><canvas class="snd-wave" data-inv aria-hidden="true"></canvas></span></span></span></button>
+</header></div></div>
 <div class="sheet">
   <div class="stage" id="stage"><canvas id="gl" aria-label="A painted scene: a log house in tall pines, a red balloon above the clouds, and a torn letter under the stars" role="img"></canvas><div class="vig"></div><div class="grain"></div><div class="veil"></div><div class="scrim" aria-hidden="true"></div></div>
   <div class="wrap" style="position:relative;z-index:5">
-<header class="on-dark">
-<a class="mark" href="https://shifatmasud-framer.vercel.app/" aria-label="Shifat Masud, portfolio" draggable="false"><i><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 204 204" aria-hidden="true"><path fill="#ffffff" d="M115.66 1.82L166.95 1.82A14 14 0 0 1 176.85 25.72L111.29 91.28A36 36 0 0 1 85.84 101.82L34.55 101.82A14 14 0 0 1 24.65 77.92L90.21 12.36A36 36 0 0 1 115.66 1.82ZM114.16 98.18L165.45 98.18A14 14 0 0 1 175.35 122.08L109.79 187.64A36 36 0 0 1 84.34 198.18L33.05 198.18A14 14 0 0 1 23.15 174.28L88.71 108.72A36 36 0 0 1 114.16 98.18Z"/></svg></i></a>
-<button class="pill pill--sound" id="sound" type="button" aria-label="Sound on" aria-pressed="true"><span class="sroll ink-par"><span class="ir-a"><canvas class="snd-wave" aria-hidden="true"></canvas></span><span class="ir-b"><canvas class="snd-wave" aria-hidden="true"></canvas></span></span><span class="ink" aria-hidden="true"><span class="sroll ink-par"><span class="ir-a"><canvas class="snd-wave" data-inv aria-hidden="true"></canvas></span><span class="ir-b"><canvas class="snd-wave" data-inv aria-hidden="true"></canvas></span></span></span></button>
-</header>
+
   </div>
   <main>
     <section class="beat" id="home" data-beat="0">

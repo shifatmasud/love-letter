@@ -8,12 +8,12 @@ dl breeze 181/181801_3153523     # keweldog, breeze.wav (forest breeze in leaves
 dl foliage 635/635053_5756735    # sillygrizzlies, Rustling Foliage in Forest
 dl crackle 563/563766_6253486    # florianreichelt, fire crackles
 dl airwind 181/181251_499617     # mario1298, a gentle breeze, wind 2
-dl gust 181/181254_499617        # mario1298, a gentle breeze, wind 5
+# removed: dl gust 181/181254_499617        # mario1298, a gentle breeze, wind 5
 dl crickets 637/637083_9250976   # Nox_Sound, Ambiance Nature Night Cricket Calm Loop
 dl cloth 330/330639_4437257      # leonelmail, Cloth Flapping On A Clothesline Gently
-dl rustle 445/445788_8292592     # DDT197, Rustling foliage
+# removed: dl rustle 445/445788_8292592     # DDT197, Rustling foliage
 dl creak 377/377552_1196472      # Mafon2, Wooden Creak
-dl paper 382/382654_4297074      # bbrocer, Paper Fluttering
+# removed: dl paper 382/382654_4297074      # bbrocer, Paper Fluttering
 # soft: every scene sound is low-passed so nothing is sharp (and no bird call can cut through)
 PY=$(cat <<'EOF'
 import sys,wave,numpy as np
@@ -45,7 +45,7 @@ loop night crickets 30 3 "highpass=f=500,lowpass=f=4500"
 shot creak creak 0 0.9 "highpass=f=120,lowpass=f=3500"
 shot crackle crackle 3 1.4 "highpass=f=180,lowpass=f=3800"
 shot cloth cloth 4 1.6 "highpass=f=150,lowpass=f=4000"
-shot paper paper 1.0 1.2 "highpass=f=180,lowpass=f=5000"
-shot rustle rustle 2 1.3 "highpass=f=200,lowpass=f=4200"
-shot gust gust 30 2.2 "highpass=f=90,lowpass=f=1600"
+# removed: shot paper paper 1.0 1.2 "highpass=f=180,lowpass=f=5000"
+# removed: shot rustle rustle 2 1.3 "highpass=f=200,lowpass=f=4200"
+# removed: shot gust gust 30 2.2 "highpass=f=90,lowpass=f=1600"
 ls -la out
