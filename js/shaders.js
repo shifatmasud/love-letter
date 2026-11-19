@@ -138,7 +138,7 @@ varying vec2 vGm;
 #endif
 void main(){
   #ifdef GMAP
-    // blades stop where the map is black (house footprint, the strip in front of it, the monstera band), even if a card reaches in
+    // blades stop where the map is black (the house footprint), even if a card reaches in
     if (texture2D(uGMap, vGm).r < 0.06) discard;
   #endif
   vec4 c = texture2D(uMap, vUv);

@@ -463,7 +463,7 @@ async function build() {
   const tint = (m, i, k, h = 0) => { const v = k * (PLANE[m.name] ?? 1); m.setColorAt(i, new THREE.Color().setRGB(v, v * 1.0, v * 0.98).lerp(PAL[0].haze, h)); };
   const fgPines = new THREE.InstancedMesh(pineGeo, cardMat(tPine, { cut: 0.5, sway: 0.022, haze: 0.0, poke: [0.012, 2.5, 0] }), 2); fgPines.frustumCulled = false; fgPines.name = 'fgpines'; fgGroup.add(fgPines);
   masses.forEach((m) => (m.name = 'mass')); floorMesh.name = 'floorMesh';
-  const GROUND = -0.66; // the monstera band in front has no grass: it is black in the grass map (FGZ in tools/bake_grass_map.py)
+  const GROUND = -0.66; // grass grows under and behind the monstera too: only the house footprint is black in the grass map
   onLayout(() => {
     // frame pieces are placed in camera terms; fgGroup cancels the centring shift of B0 so they stay on the edges
     const at = (z) => { const d = 10 - z; const H = vh(d); return { H, Wd: H * camera.aspect, d }; };
@@ -513,7 +513,7 @@ async function build() {
   // grass is laid after centring. Where it grows comes only from the grass map; how tall is one size for every clump.
   // Shifat: "Grasses are too long & fighting with house. All grass must be same size." So no random or zone heights: every clump is
   // GH tall (scaled with the house on phones), the map keeps the house footprint and the strip where its tips would reach the house
-  // base black, and the monstera band in front black. Rows are even in log(distance), so short clumps still close the ground far back.
+  // base black. Rows are even in log(distance), so short clumps still close the ground far back.
   const GH = 0.42, SP = 0.4, DMAX = 56;
   B0.userData.layoutGrass = (hb) => {
     const gr = mulberry(91), s = hb.s, camY = -B0.position.y, hc = camY - GROUND, fp = hb.fp;
