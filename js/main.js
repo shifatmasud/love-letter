@@ -456,6 +456,7 @@ async function build() {
   const floorMesh = new THREE.InstancedMesh(floor.geometry, floor.material, 3); floorMesh.frustumCulled = false;
   const PLANE = { mass: 1.25 };
   const tint = (m, i, k, h = 0) => { const v = k * (PLANE[m.name] ?? 1); m.setColorAt(i, new THREE.Color().setRGB(v, v * 1.0, v * 0.98).lerp(PAL[0].haze, h)); };
+  const fgPines = new THREE.InstancedMesh(pineGeo, cardMat(tPine, { cut: 0.5, sway: 0.03, haze: 0.0 }), 2); fgPines.frustumCulled = false; fgPines.name = 'fgpines'; fgGroup.add(fgPines);
   masses.forEach((m) => (m.name = 'mass')); floorMesh.name = 'floorMesh';
   const GROUND = -0.66; // the monstera band in front has no grass: it is black in the grass map (FGZ in tools/bake_grass_map.py)
   onLayout(() => {
@@ -488,6 +489,22 @@ async function build() {
       const hw = h * q.H / 2, w = hw / ta; // world height and width
       m.setMatrixAt(i, mat(cx * q.Wd / 2, by * q.H / 2, z, w * flip, w, 1)); tint(m, i, tone, hz);
     }
+    // two foreground framing pines, composed like a forest photo: not mirrored, the left one nearer and taller, both trunks cut by the
+    // frame edges, crowns cropped by the top. Same painted pine as the midground, a little darker. Placed in NDC of the resting frame and
+    // sized by frame HEIGHT (phone and desktop blend like the monstera). Found with a search over the house's real silhouette, widened by
+    // the full-tilt parallax shift, so no part of either pine covers the house at rest or at full tilt.
+    // [i, z (phone, desk), phone (cx, bottom, h), desk (cx, bottom, h), flip]  cx/bottom in NDC, h = card height in NDC
+    const FGP = [
+      [0, [6.4, 6.4], [-1.42, -1.15, 8.0], [-0.9, -1.5, 6.4], 1],
+      [1, [5.2, 5.2], [1.5, -1.5, 2.6], [0.96, -1.5, 3.0], -1],
+    ];
+    for (const [i, zz, ph, dk, flip] of FGP) {
+      const [cx, by, hn] = ph.map((v, k) => THREE.MathUtils.lerp(v, dk[k], fk)), z = THREE.MathUtils.lerp(zz[0], zz[1], fk), q = at(z);
+      const sc = (hn * q.H / 2) / tPine.userData.aspect;
+      fgPines.setMatrixAt(i, mat(cx * q.Wd / 2, by * q.H / 2, z, sc * flip, sc, 1));
+      fgPines.setColorAt(i, new THREE.Color().setRGB(0.74, 0.74, 0.74).lerp(PAL[0].haze, 0.04));
+    }
+    fgPines.instanceMatrix.needsUpdate = true; fgPines.instanceColor.needsUpdate = true;
     const g2 = at(1.6);
     floorMesh.setMatrixAt(0, mat(-2.2, -0.9, -1.2, 9, 3, 1)); floorMesh.setMatrixAt(1, mat(3.8, -1.0, -1.6, 8, 2.6, 1)); floorMesh.setMatrixAt(2, mat(0, -g2.H / 2 + 0.25, 1.6, Math.max(10, g2.Wd * 1.3), 4, 1));
     tint(floorMesh, 0, 0.9, 0.1); tint(floorMesh, 1, 0.9, 0.12); tint(floorMesh, 2, 0.78);
