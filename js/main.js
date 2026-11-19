@@ -69,7 +69,10 @@ const U = {
 // ---------- textures ----------
 const TEX_SCALE = LOW ? 0.5 : 1;
 const loaded = {};
-async function tex(name, { scale = TEX_SCALE, repeat = false, file = `/tex/${name}.webp` } = {}) {
+// the preloader (inline in index.html): real progress from every painting, sound, font and shader warm-up
+const pre = window.__pre || { add() {}, tick() {}, done(cb) { cb(); } };
+async function tex(name, opts) { if (loaded[name]) return loaded[name]; const t = await tex0(name, opts); pre.tick(); return t; }
+async function tex0(name, { scale = TEX_SCALE, repeat = false, file = `/tex/${name}.webp` } = {}) {
   if (loaded[name]) return loaded[name];
   file = asset(file); // versioned URL: tex/ is cached for a year, so a changed painting needs a new URL
   let t;
@@ -213,9 +216,9 @@ async function build() {
     tex('monstera-a', { scale: 1 }), tex('monstera-b', { scale: 1 }), tex('curlgrass', { scale: 1 }), tex('bough'), tex('curlgrass2', { scale: 1 }),
   ]);
   skyMat.uniforms.uMap.value = tSky; skyMat.uniforms.uTexAspect.value = 1 / tSky.userData.aspect;
-  const glowT = await new THREE.TextureLoader().loadAsync(asset('/tex/glow.png'));
-  const puffT = await new THREE.TextureLoader().loadAsync(asset('/tex/puff.png'));
-  const shaftT = await new THREE.TextureLoader().loadAsync(asset('/tex/shaft.png'));
+  const glowT = await new THREE.TextureLoader().loadAsync(asset('/tex/glow.png')).finally(() => pre.tick());
+  const puffT = await new THREE.TextureLoader().loadAsync(asset('/tex/puff.png')).finally(() => pre.tick());
+  const shaftT = await new THREE.TextureLoader().loadAsync(asset('/tex/shaft.png')).finally(() => pre.tick());
   const B0 = beatGroups[0];
 
   // ----- far painted layers (2D cards in depth) -----
@@ -807,6 +810,7 @@ function tickText(P) {
 }
 
 // ========== Lenis: one RAF for scroll + scene ==========
+let revealed = false;
 const lenis = new Lenis({ autoRaf: false, lerp: reduce ? 1 : 0.09, smoothWheel: !reduce, syncTouch: false, anchors: false });
 
 // ========== pointer: camera parallax, hover, taps ==========
@@ -904,7 +908,7 @@ function frame(now) {
     else if (activeBeat() === 0 && beatGroups[0].userData.fireflyPt) { ray.setFromCamera(ndc, camera); const pt = ray.ray.at(11, new THREE.Vector3()); const l = beatGroups[0].worldToLocal(pt); if (l.z > -6 && l.z < 2) beatGroups[0].userData.fireflyPt(l); }
   }
   // text in/out by beat
-  tickText(P);
+  if (revealed) tickText(P); // the hero text plays in only after the preloader has slid away
   Sound.mix(p);
   renderer.render(scene, camera);
   // adaptive: if frames stay slow on a weak device, render fewer pixels
@@ -935,20 +939,31 @@ lenis.on('scroll', theme);
 // ========== boot ==========
 // the one loop starts now, so Lenis scrolls even while the paintings load
 requestAnimationFrame(frame);
+// everything loads behind the preloader: scroll stays locked and the hero text waits until it has slid away
+const PRE_TEX = 29; // paintings, glow, puff and shaft (counted in a test run: 29)
+lenis.stop();
+pre.add(PRE_TEX + Sound.count + 1 + 3);
+const fontsP = (document.fonts ? document.fonts.ready : Promise.resolve()).catch(() => {}).then(() => pre.tick());
+const sndP = Sound.preload(pre);
+function warm() { // compile every shader and upload every texture now, so nothing stutters after the reveal
+  renderer.compile(scene, camera);
+  const seen = new Set();
+  scene.traverse((o) => { const ms = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+    for (const m of ms) { for (const k in m) if (m[k]?.isTexture) seen.add(m[k]); if (m.uniforms) for (const k in m.uniforms) { const v = m.uniforms[k].value; if (v?.isTexture) seen.add(v); } } });
+  seen.forEach((t) => renderer.initTexture(t));
+}
 (async function boot() {
   resize();
   const { glowT } = await build();
-  resize();
-  // warm the shaders before the first visible frame
-  renderer.compile(scene, camera);
-  renderer.render(scene, camera);
+  resize(); warm(); pre.tick();
   stage.classList.add('ready');
   built = true;
   document.documentElement.classList.add('gl-ready');
-  // the other two beats load right after the first is on screen
   await buildBalloon(glowT);
   await buildLetter();
-  resize();
-  renderer.compile(scene, camera);
-  window.__pines = { ready: true, THREE, renderer, scene, camera, lenis, root, LOW, GPU, forcePtr: (x, y) => { forced = x === null ? null : [x, y]; } };
-})().catch((e) => { console.error(e); stage.classList.add('ready'); built = true; });
+  resize(); warm(); pre.tick();
+  await Promise.all([fontsP, sndP]);
+  renderer.render(scene, camera); pre.tick();
+  pre.done(() => { revealed = true; lenis.start();
+    window.__pines = { ready: true, THREE, renderer, scene, camera, lenis, root, LOW, GPU, forcePtr: (x, y) => { forced = x === null ? null : [x, y]; } }; });
+})().catch((e) => { console.error(e); stage.classList.add('ready'); built = true; pre.done(() => { revealed = true; lenis.start(); }); });

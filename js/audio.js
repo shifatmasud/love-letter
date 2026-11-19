@@ -26,7 +26,14 @@ function pickExt() {
   const a = document.createElement('audio');
   return a.canPlayType('audio/webm; codecs="opus"') ? 'webm' : 'mp3';
 }
+// the preloader fetches every sound file's bytes up front; boot (on the first tap) only decodes them
+const bytes = {};
+function preload(pre) {
+  const e = pickExt(), names = [...Object.keys(BEDS), ...SHOTS];
+  return Promise.all(names.map((n) => fetch(asset(`/snd/${n}.${e}`)).then((r) => r.arrayBuffer()).then((ab) => { bytes[n] = [e, ab]; }).catch(() => {}).finally(() => pre?.tick())));
+}
 async function load(name) {
+  if (bytes[name] && bytes[name][0] === ext) { try { return await ctx.decodeAudioData(bytes[name][1].slice(0)); } catch (_) {} }
   for (const e of [ext, 'mp3']) {
     try {
       const r = await fetch(asset(`/snd/${name}.${e}`));
