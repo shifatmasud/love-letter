@@ -273,7 +273,7 @@ async function build() {
 
   // ----- the log house: smooth logs with notched corners, painted bark, log ends, moss roof -----
   const house = new THREE.Group(); house.position.set(0.35, -0.62, -4); house.rotation.y = -0.52; B0.add(house); house.name = 'L4 house';
-  onLayout(() => { house.scale.setScalar(THREE.MathUtils.clamp(camera.aspect * 1.2, 0.55, 1)); // phones: the house shrinks to fit the width, it never moves B0.position.set(0, 0, 0); });
+  onLayout(() => { house.scale.setScalar(THREE.MathUtils.clamp(camera.aspect * 1.2, 0.55, 1)); B0.position.set(0, 0, 0); }); // phones: the house shrinks to fit the width, it never moves
   centre(house, 0, (dx, dy) => { B0.position.x += dx; B0.position.y += dy; const fg = B0.userData.fg; if (fg) fg.position.set(-B0.position.x, -B0.position.y, 0);
     house.updateWorldMatrix(true, true); const hb = new THREE.Box3().setFromObject(house); hb.min.sub(B0.position); hb.max.sub(B0.position); hb.min.y -= root.position.y; hb.max.y -= root.position.y; B0.userData.layoutGrass?.(hb); });
   const R = 0.15, W = 3.8, D = 2.9, NL = 9;
@@ -531,6 +531,20 @@ async function buildBalloon(glowT) {
     ['s3', -22, 0.62, -0.78, 0.2, 1, 1.15, -14, 0.1, 1, 0.72],
     ['big', 2.5, -1.08, -1.02, 0.5, 1, 'near', 20, 0, 1, 0.7],
     ['s1', 3.0, 0.98, 0.9, 0.24, 1, 'frame', 20.5, 0, -1, 0.7],
+    // a rich cloudscape (Shifat): many more whole clouds. back: small and hazy, all around
+    ['s0', -46, -0.25, 0.78, 0.09, 1, 0.95, -16.2, 0.32, 1, 0.78],
+    ['s3', -46, 0.3, -0.72, 0.1, 1, 0.95, -16.2, 0.32, -1, 0.78],
+    ['s2', -45, 0.45, 0.35, 0.08, 1, 0.95, -16.1, 0.32, -1, 0.78],
+    ['s1', -45, -0.42, 0.12, 0.08, 1, 0.95, -16.1, 0.32, 1, 0.78],
+    ['s0', -44, 0.05, -0.95, 0.12, 1, 0.95, -16, 0.3, 1, 0.78],
+    // middle: medium clouds on the sides, clear of the balloon
+    ['s2', -30, -0.95, -0.05, 0.17, 1, 1.1, -14.9, 0.16, -1, 0.72],
+    ['s0', -28, 0.95, 0.12, 0.15, 1, 1.1, -14.85, 0.16, 1, 0.72],
+    ['s3', -27, -0.55, 0.88, 0.13, 1, 1.1, -14.8, 0.15, 1, 0.72],
+    ['s1', -26, 0.5, -0.98, 0.16, 1, 1.1, -14.75, 0.15, -1, 0.72],
+    // front: two more near clouds, only in the corners
+    ['s0', 2.2, 1.1, -0.95, 0.3, 1, 'near', 20.2, 0, -1, 0.7],
+    ['s3', 2.0, -1.08, 0.95, 0.22, 1, 'frame', 20.3, 0, 1, 0.7],
     // between beats: one thin cloud passes through the empty middle on the way up (never over a subject)
     ['s2', 1.0, 0.0, 0.0, 0.16, 1.5, 'near', 19, 0, 1, 0.7],
     // behind the balloon on the way up: two big mid clouds so the climb feels full on wide screens too
