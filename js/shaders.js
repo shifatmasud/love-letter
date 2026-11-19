@@ -164,7 +164,7 @@ void main(){
   float w = smoothstep(0.12, 0.42, sin(q.x * 2.1 + sin(q.y * 1.7) * 1.3) * 0.5 + 0.5 + brush * 1.6 - abs(y - 0.64) * 3.2);
   col = mix(col, mix(vec3(1.0, 0.98, 0.95), vec3(1.0, 0.88, 0.80), k1), w * 0.35 * sunOn);
   // painted zenith: the top of the frame grades to a deeper blue in day and dusk, so the white nav reads on the scene itself
-  float zen = smoothstep(0.78, 0.97, y) * (1.0 - kn); // the header is white and fixed through every beat now, so the balloon sky gets the deep zenith too
+  float zen = smoothstep(0.80, 0.97, y) * (1.0 - kn) * (1.0 - k1 * (1.0 - kd)); // not in the bright balloon sky, where the nav turns ink
   col = mix(col, mix(vec3(0.20, 0.33, 0.60), vec3(0.20, 0.22, 0.46), kd), zen * 0.85);
   col += brush * mix(0.05, 0.03, k2);
   // night: only a faint, cool-rose afterglow stays low on the horizon behind the cloud sea
