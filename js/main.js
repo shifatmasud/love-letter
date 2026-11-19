@@ -287,7 +287,11 @@ async function build() {
   const house = new THREE.Group(); house.position.set(0.35, -0.62, -4); house.rotation.y = -0.52; B0.add(house); house.name = 'L4 house';
   onLayout(() => { house.scale.setScalar(THREE.MathUtils.clamp(camera.aspect * 1.2, 0.55, 1)); B0.position.set(0, 0, 0); }); // phones: the house shrinks to fit the width, it never moves
   centre(house, 0, (dx, dy) => { B0.position.x += dx; B0.position.y += dy; const fg = B0.userData.fg; if (fg) fg.position.set(-B0.position.x, -B0.position.y, 0);
-    house.updateWorldMatrix(true, true); const hb = new THREE.Box3().setFromObject(house); hb.min.sub(B0.position); hb.max.sub(B0.position); hb.min.y -= root.position.y; hb.max.y -= root.position.y; B0.userData.layoutGrass?.(hb); });
+    house.updateWorldMatrix(true, true); const hb = new THREE.Box3().setFromObject(house); hb.min.sub(B0.position); hb.max.sub(B0.position); hb.min.y -= root.position.y; hb.max.y -= root.position.y;
+    // the house's real foot: the parts that stand on the ground (walls, porch deck, posts), not the porch roof that hangs out in front
+    hb.feet = []; house.traverse((o) => { if (!o.isMesh || !o.visible) return; const b = new THREE.Box3().setFromObject(o); b.min.sub(B0.position); b.max.sub(B0.position); b.min.y -= root.position.y;
+      if (b.min.y < hb.min.y + 0.15) hb.feet.push({ x0: b.min.x, x1: b.max.x, z: b.max.z }); });
+    B0.userData.layoutGrass?.(hb); });
   const R = 0.15, W = 3.8, D = 2.9, NL = 9;
   const logGeo = new THREE.CylinderGeometry(R, R, 1, 24, 1, true); logGeo.rotateZ(Math.PI / 2);
   const logs = []; const ends = [];
@@ -399,7 +403,7 @@ async function build() {
   const bigPine = mk(tPine, 2, { sway: 0.015 }); bigPine.visible = false; // the dark framing trunks read as a different pine and crowded the top corners (Shifat)
   // long grass: one instanced draw of alpha-tested painted clumps that live in the world, not in the frame
   // only long curvy blades (Shifat): two clean painted clumps, 3 flat values, no tufts, no seed heads
-  const NG = LOW ? 150 : 210; // per card, so 2 x NG clumps
+  const NG = LOW ? 520 : 760; // per card, so 2 x NG clumps (rows x columns of the ground grid below)
   const lgs = [tLong, tLong2].map((t, k) => { const g = new THREE.PlaneGeometry(1, 1, 1, 4); g.translate(0, 0.5, 0); g.scale(1, t.userData.aspect, 1);
     const m = new THREE.InstancedMesh(g, cardMat(t, { cut: 0.5, sway: 0.08, rustle: 0.03, bend: 0.6 }), NG); m.frustumCulled = false; m.name = k ? 'longgrass2' : 'longgrass'; B0.add(m); return m; });
   const lg = lgs[0];
@@ -450,34 +454,43 @@ async function build() {
     tint(floorMesh, 0, 0.9, 0.1); tint(floorMesh, 1, 0.9, 0.12); tint(floorMesh, 2, 0.78);
     for (const m of [...masses, bough, bigPine, floorMesh]) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
   });
-  // grass is laid after centring (it needs the house's place on screen): tall everywhere, but never over the house.
-  // A clump at camera distance d may rise only to the sight line from the camera to the house's foot, so it can never cover it.
-  // Gap fix: clumps used to be spread by world depth, so most landed near the horizon or off screen and the lower
-  // frame (between the frame plants and the lawn) showed bare floor. Now each clump is placed by its screen row:
-  // a ray from the camera through an even spread of screen points hits the ground, so every row of ground is full.
+  // grass is laid after centring (it needs the house's place on screen): the whole ground is grass, but never over the house.
+  // Bare-ground fix: clumps used to be cast from one rest-pose camera, only up to z -10, so the lawn behind the house, the
+  // far ground between the pines and the far ground the crane shot looks down on had no grass at all. Now clumps fill a
+  // jittered grid that is even in screen space for any camera height and tilt: rows even in 1/distance, columns even in
+  // x/distance, from the frame bottom to the far end of the ground, and each clump grows with its distance, so every row is full.
+  // A clump in front of the house may rise only to the sight line from the camera to the house's foot (shorter, never none).
   B0.userData.layoutGrass = (hb) => {
-    const gr = mulberry(91); const camY = -B0.position.y;
-    const ray = new THREE.Raycaster(); const pl = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0); const hit = new THREE.Vector3(); const nd = new THREE.Vector2();
-    camera.updateMatrixWorld(); B0.updateMatrixWorld();
-    const gW = new THREE.Vector3(0, GROUND, 0).applyMatrix4(B0.matrixWorld); pl.constant = -gW.y;
-    const farP = new THREE.Vector3(0, GROUND, -10).applyMatrix4(B0.matrixWorld).project(camera); const yTop = Math.min(farP.y, 0.2);
-    const N = NG * 2;
+    const gr = mulberry(91); const camY = -B0.position.y; const hc = camY - GROUND;
+    // RF extra rows even in distance cover the far ground that the crane shot looks down on (rows even in 1/distance are too sparse there)
+    const N = NG * 2, FILL = LOW ? 120 : 160, R = LOW ? 20 : 24, RF = LOW ? 11 : 14, Cn = Math.floor((N - FILL) / (R + RF));
+    const sN = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.2 / hc, sF = 1 / 70; // 1/distance at the frame bottom (rest camera, with room for the tilt) and at the far end of the ground
+    const tx = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * Math.max(camera.aspect, 0.4) * 1.18;
+    const ox = -B0.position.x;
     for (let i = 0; i < N; i++) {
       const m = lgs[i % 2]; const j = i >> 1; const t = m === lg ? tLong : tLong2;
-      // rows: even in screen y from below the frame to the far lawn, jittered; x spread wider than the screen for the tilt
-      const r = (i + gr()) / N; nd.set((gr() * 2 - 1) * 1.3, THREE.MathUtils.lerp(-1.18, yTop, Math.pow(r, 1.15)));
-      ray.setFromCamera(nd, camera); if (!ray.ray.intersectPlane(pl, hit)) { m.setMatrixAt(j, mat(0, -50, 0, 0.001, 0.001, 1)); continue; }
-      B0.worldToLocal(hit); const x = hit.x, z = hit.z; const d = 10 - z;
-      let h = THREE.MathUtils.lerp(0.7, 1.3, gr()) * THREE.MathUtils.clamp(d / 9, 0.5, 1.25);
-      // a clump nearer than a frame monstera, inside its inner box, would hide it (the phone bug): leave that spot to the leaf
-      if ((B0.userData.frameRects || []).some((r) => z > r.z - 0.2 && nd.x > r.x0 - 0.05 && nd.x < r.x1 + 0.05 && nd.y < r.y1)) { m.setMatrixAt(j, mat(0, -50, 0, 0.001, 0.001, 1)); continue; }
+      const row = Math.floor(i / Cn), col = i % Cn;
+      let d, x;
+      if (i >= N - FILL) { // extra layers of short clumps on the strip in front of the house, so the sparse blade tips under its foot line still hide the ground
+        x = THREE.MathUtils.lerp(hb.min.x - 0.3, hb.max.x + 0.3, gr());
+        let fz = hb.max.z; { let m = -Infinity; for (const f of hb.feet) if (x > f.x0 - 0.5 && x < f.x1 + 0.5) m = Math.max(m, f.z); if (m > -Infinity) fz = m; }
+        d = (10 - fz) - 0.12 - gr() * Math.min(5, (10 - fz) * 0.45);
+      } else if (row >= R + RF) { m.setMatrixAt(j, mat(0, -50, 0, 0.001, 0.001, 1)); continue; }
+      else { const sd = row < R ? THREE.MathUtils.lerp(sN, sF, (row + gr()) / R) : 1 / THREE.MathUtils.lerp(14, 66, (row - R + gr()) / RF); d = 1 / sd;
+        x = ox + d * tx * (((col + (row % 2) * 0.5 + gr() * 0.9) / Cn) * 2 - 1) + (gr() - 0.5) * 0.4; }
+      const z = 10 - d;
+      // tall enough to hide the ground up to the next row, seen from the crane's highest hero height (camera at 2.2 x rest height)
+      let h = Math.max(THREE.MathUtils.lerp(0.75, 1.3, gr()), d * ((sN - sF) / R) * hc * 2.6 * THREE.MathUtils.lerp(1, 1.35, gr()));
+      if (row >= R && i < N - FILL) h = Math.max(h, THREE.MathUtils.lerp(1.9, 2.6, gr())); // far rows: tall enough to close the gaps seen from the crane
       const inX = x > hb.min.x - 0.5 && x < hb.max.x + 0.5;
-      if (inX && z > hb.min.z - 0.3 && z < hb.max.z + 0.3) { h *= 0.18; }
-      else if (inX && z >= hb.max.z) { const dh = 10 - hb.max.z; const lim = (camY - GROUND) * (1 - d / dh) - 0.05; h = Math.min(h, Math.max(0.12, lim)); }
-      const w = h / t.userData.aspect * (1.25 + gr() * 0.4) * (gr() < 0.5 ? -1 : 1);
+      if (inX) { // tips stop at the sight line to the house's foot right behind this clump (so the grass never covers the house)
+        let fz = -Infinity; for (const f of hb.feet) if (x > f.x0 - 0.5 && x < f.x1 + 0.5) fz = Math.max(fz, f.z);
+        if (fz > -Infinity && z >= fz) { const lim = hc * (1 - d / (10 - fz)) - 0.01; h = Math.min(h, Math.max(0.04, lim)); } }
+      const w = h / t.userData.aspect * (1.6 + gr() * 0.5) * (gr() < 0.5 ? -1 : 1);
       const far = THREE.MathUtils.clamp((-z) / 9, 0, 1);
       m.setMatrixAt(j, mat(x, GROUND - 0.04, z, w, h / t.userData.aspect, 1, 0, (gr() - 0.5) * 0.5, (gr() - 0.5) * 0.1));
-      const v = THREE.MathUtils.lerp(1.0, 0.9, gr()) * (z > 3 ? 0.9 : 1); // nearest rows a touch darker for depth, never near-black m.setColorAt(j, new THREE.Color().setRGB(v, v, v * 0.97).lerp(PAL[0].haze, 0.04 + far * 0.3));
+      const v = THREE.MathUtils.lerp(1.0, 0.9, gr()) * (z > 3 ? 0.9 : 1); // nearest rows a touch darker for depth, never near-black
+      m.setColorAt(j, new THREE.Color().setRGB(v, v, v * 0.97).lerp(PAL[0].haze, 0.04 + far * 0.3));
     }
     for (const m of lgs) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
   };
