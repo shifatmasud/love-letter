@@ -207,10 +207,10 @@ function layoutSubjects() {
 }
 
 async function build() {
-  const [tSky, tFar, tMid, tPine, tGround, tWood, tRoof, tEnd, tStone, tWin, tDoor, tMass1, tMass2, tLong, tBough] = await Promise.all([
+  const [tSky, tFar, tMid, tPine, tGround, tWood, tRoof, tEnd, tStone, tWin, tDoor, tMass1, tMass2, tLong, tBough, tLong2] = await Promise.all([
     tex('sky', { scale: 1 }), tex('farpines'), tex('midpines'), tex('tallpine', { scale: 1 }), tex('ground'), tex('logwood', { repeat: true }), tex('roof', { repeat: true }),
     tex('logend', { scale: 1 }), tex('stone', { repeat: true, scale: 1 }), tex('window', { scale: 1 }), tex('door', { scale: 1 }),
-    tex('mass1'), tex('mass2'), tex('longgrass', { scale: 1 }), tex('bough'),
+    tex('monstera-a', { scale: 1 }), tex('monstera-b', { scale: 1 }), tex('curlgrass', { scale: 1 }), tex('bough'), tex('curlgrass2', { scale: 1 }),
   ]);
   skyMat.uniforms.uMap.value = tSky; skyMat.uniforms.uTexAspect.value = 1 / tSky.userData.aspect;
   const glowT = await new THREE.TextureLoader().loadAsync(asset('/tex/glow.png'));
@@ -227,6 +227,7 @@ async function build() {
   mist1.position.set(0, 1, -80); mist1.renderOrder = -19; B0.add(mist1);
   const mid2 = tiles(tMid, 62, 3, { haze: 0.32 }, -10, -3.5, -68, -18.5, -1)[1]; mid2.name = 'L2 far pines';
   const mid = tiles(tMid, 54, 3, { haze: 0.14 }, 8, -3, -55, -18)[1]; mid.name = 'L3 mid pines';
+  tiles(tMid, 46, 3, { haze: 0.08 }, -4, -2.6, -44, -17.5, -1); // a third, nearer ridge: the forest reads dense all the way back
   const mist2 = mist1.clone(); mist2.material = mist1.material.clone(); mist2.material.uniforms.uHaze = U.haze; mist2.material.uniforms.uTime = U.time; mist2.material.uniforms.uOpacity.value = 0.5;
   mist2.scale.set(0.6, 0.55, 1); mist2.position.set(0, -1.5, -40); mist2.renderOrder = -17; B0.add(mist2);
 
@@ -243,6 +244,14 @@ async function build() {
     [-13.5, -15, 18, 0.9], [14.5, -17, 19, 0.88], [-7.5, -22, 21, 0.85], [9.6, -25, 22, 0.84], [-19, -22, 21, 0.84], [20, -21, 21, 0.84],
     [-1.2, -31, 23, 0.8], [2.8, -34, 24, 0.78], [-9.5, -33, 24, 0.78], [12.5, -33, 24, 0.78], [-22, -32, 24, 0.78], [23, -30, 24, 0.78], [-5.5, -36, 25, 0.76], [7.8, -37, 25, 0.76],
   ].slice(0, LOW ? 24 : 32);
+  { // denser forest (Shifat): extra pines around the house and in the back, kept off the house's sight line
+    const pr = mulberry(57); const extra = LOW ? 18 : 30;
+    for (let i = 0; i < extra; i++) {
+      const back = i % 3 !== 0; const z = back ? -26 - pr() * 18 : -8.5 - pr() * 9;
+      let x = (pr() * 2 - 1) * (back ? 30 : 16); if (!back && Math.abs(x) < 4.2) x = Math.sign(x || 1) * (4.2 + pr() * 2);
+      pines.push([x, z, (back ? 21 : 14) + pr() * 4, back ? 0.78 : 0.95]);
+    }
+  }
   const pineMesh = new THREE.InstancedMesh(pineGeo, cardMat(tPine, { cut: 0.5, sway: 0.08, haze: 0.0 }), pines.length);
   pines.forEach(([x, z, h0, k], i) => {
     // tops stay just under the balloon's eye line (y 15.5): taller pines poked up beside the balloon in beat 2
@@ -264,7 +273,7 @@ async function build() {
 
   // ----- the log house: smooth logs with notched corners, painted bark, log ends, moss roof -----
   const house = new THREE.Group(); house.position.set(0.35, -0.62, -4); house.rotation.y = -0.52; B0.add(house); house.name = 'L4 house';
-  onLayout(() => { house.scale.setScalar(subjK()); B0.position.set(0, 0, 0); });
+  onLayout(() => { house.scale.setScalar(THREE.MathUtils.clamp(camera.aspect * 1.2, 0.55, 1)); // phones: the house shrinks to fit the width, it never moves B0.position.set(0, 0, 0); });
   centre(house, 0, (dx, dy) => { B0.position.x += dx; B0.position.y += dy; const fg = B0.userData.fg; if (fg) fg.position.set(-B0.position.x, -B0.position.y, 0);
     house.updateWorldMatrix(true, true); const hb = new THREE.Box3().setFromObject(house); hb.min.sub(B0.position); hb.max.sub(B0.position); hb.min.y -= root.position.y; hb.max.y -= root.position.y; B0.userData.layoutGrass?.(hb); });
   const R = 0.15, W = 3.8, D = 2.9, NL = 9;
@@ -376,9 +385,11 @@ async function build() {
   const bough = mk(tBough, 2, { sway: 0.07, rustle: 0.06, hang: 1 });
   const bigPine = mk(tPine, 2, { sway: 0.015 });
   // long grass: one instanced draw of alpha-tested painted clumps that live in the world, not in the frame
-  const lgGeo = new THREE.PlaneGeometry(1, 1, 1, 4); lgGeo.translate(0, 0.5, 0); lgGeo.scale(1, tLong.userData.aspect, 1);
-  const NG = LOW ? 320 : 460;
-  const lg = new THREE.InstancedMesh(lgGeo, cardMat(tLong, { cut: 0.45, sway: 0.09, rustle: 0.05, bend: 0.6 }), NG); lg.frustumCulled = false; lg.name = 'longgrass'; B0.add(lg);
+  // only long curvy blades (Shifat): two clean painted clumps, 3 flat values, no tufts, no seed heads
+  const NG = LOW ? 150 : 210; // per card, so 2 x NG clumps
+  const lgs = [tLong, tLong2].map((t, k) => { const g = new THREE.PlaneGeometry(1, 1, 1, 4); g.translate(0, 0.5, 0); g.scale(1, t.userData.aspect, 1);
+    const m = new THREE.InstancedMesh(g, cardMat(t, { cut: 0.5, sway: 0.08, rustle: 0.03, bend: 0.6 }), NG); m.frustumCulled = false; m.name = k ? 'longgrass2' : 'longgrass'; B0.add(m); return m; });
+  const lg = lgs[0];
   const floor = card(tGround, 1, { cut: 0.5, tint: 0xb9b2a0 }); floor.geometry = leafGeo.clone(); floor.geometry.scale(1, tGround.userData.aspect, 1);
   const floorMesh = new THREE.InstancedMesh(floor.geometry, floor.material, 3); floorMesh.frustumCulled = false;
   const PLANE = { mass: 1.25, bough: 0.62, bigPine: 1 };
@@ -412,23 +423,32 @@ async function build() {
   });
   // grass is laid after centring (it needs the house's place on screen): tall everywhere, but never over the house.
   // A clump at camera distance d may rise only to the sight line from the camera to the house's foot, so it can never cover it.
+  // Gap fix: clumps used to be spread by world depth, so most landed near the horizon or off screen and the lower
+  // frame (between the frame plants and the lawn) showed bare floor. Now each clump is placed by its screen row:
+  // a ray from the camera through an even spread of screen points hits the ground, so every row of ground is full.
   B0.userData.layoutGrass = (hb) => {
-    const gr = mulberry(91); const camY = -B0.position.y; // camera height in B0 space at rest
-    for (let i = 0; i < NG; i++) {
-      // spread over the whole visible floor, denser near the camera; fixed world spots, same on every screen
-      const t = i / NG; const z = 6.6 - Math.pow(gr(), 0.8) * 15.5; const d = 10 - z; const half = vh(d) * Math.max(camera.aspect, 0.9) * 0.62;
-      const x = (gr() * 2 - 1) * half + B0.position.x * -1;
-      let h = THREE.MathUtils.lerp(0.45, 1.35, gr()) * THREE.MathUtils.clamp(d / 9, 0.55, 1.25);
-      // the house: no clump inside its footprint, and in front of it each clump stays under the camera-to-foot sight line
+    const gr = mulberry(91); const camY = -B0.position.y;
+    const ray = new THREE.Raycaster(); const pl = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0); const hit = new THREE.Vector3(); const nd = new THREE.Vector2();
+    camera.updateMatrixWorld(); B0.updateMatrixWorld();
+    const gW = new THREE.Vector3(0, GROUND, 0).applyMatrix4(B0.matrixWorld); pl.constant = -gW.y;
+    const farP = new THREE.Vector3(0, GROUND, -10).applyMatrix4(B0.matrixWorld).project(camera); const yTop = Math.min(farP.y, 0.2);
+    const N = NG * 2;
+    for (let i = 0; i < N; i++) {
+      const m = lgs[i % 2]; const j = i >> 1; const t = m === lg ? tLong : tLong2;
+      // rows: even in screen y from below the frame to the far lawn, jittered; x spread wider than the screen for the tilt
+      const r = (i + gr()) / N; nd.set((gr() * 2 - 1) * 1.3, THREE.MathUtils.lerp(-1.18, yTop, Math.pow(r, 1.15)));
+      ray.setFromCamera(nd, camera); if (!ray.ray.intersectPlane(pl, hit)) { m.setMatrixAt(j, mat(0, -50, 0, 0.001, 0.001, 1)); continue; }
+      B0.worldToLocal(hit); const x = hit.x, z = hit.z; const d = 10 - z;
+      let h = THREE.MathUtils.lerp(0.7, 1.3, gr()) * THREE.MathUtils.clamp(d / 9, 0.5, 1.25);
       const inX = x > hb.min.x - 0.5 && x < hb.max.x + 0.5;
       if (inX && z > hb.min.z - 0.3 && z < hb.max.z + 0.3) { h *= 0.18; }
       else if (inX && z >= hb.max.z) { const dh = 10 - hb.max.z; const lim = (camY - GROUND) * (1 - d / dh) - 0.05; h = Math.min(h, Math.max(0.12, lim)); }
-      const w = h / tLong.userData.aspect * (1.1 + gr() * 0.5) * (gr() < 0.5 ? -1 : 1);
+      const w = h / t.userData.aspect * (1.25 + gr() * 0.4) * (gr() < 0.5 ? -1 : 1);
       const far = THREE.MathUtils.clamp((-z) / 9, 0, 1);
-      lg.setMatrixAt(i, mat(x, GROUND - 0.04, z, w, h / tLong.userData.aspect, 1, 0, (gr() - 0.5) * 0.6, (gr() - 0.5) * 0.12));
-      const v = THREE.MathUtils.lerp(0.95, 0.82, gr()) * (z > 3 ? 0.78 : 1); lg.setColorAt(i, new THREE.Color().setRGB(v, v, v * 0.97).lerp(PAL[0].haze, 0.04 + far * 0.3));
+      m.setMatrixAt(j, mat(x, GROUND - 0.04, z, w, h / t.userData.aspect, 1, 0, (gr() - 0.5) * 0.5, (gr() - 0.5) * 0.1));
+      const v = THREE.MathUtils.lerp(0.95, 0.84, gr()) * (z > 3 ? 0.8 : 1); m.setColorAt(j, new THREE.Color().setRGB(v, v, v * 0.97).lerp(PAL[0].haze, 0.04 + far * 0.3));
     }
-    lg.instanceMatrix.needsUpdate = true; lg.instanceColor.needsUpdate = true;
+    for (const m of lgs) { m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true; }
   };
 
   // ----- hit proxies -----
@@ -485,7 +505,7 @@ async function build() {
     scat.copy(pt ?? V.set(0, 0.6, -2)); scatT = U.time.value; rustleKick = 1; Sound.play('sparkle', 0.32); if (pt && pt.z > 1) Sound.play('wings', 0.28);
   };
   B0.userData.fireflyPt = (p) => { scat.copy(p); scatT = U.time.value - 0.15; };
-  B0.userData.mats = { fg: [...masses.map((m) => m.material), bough.material, lg.material] }; B0.userData.fg = fgGroup;
+  B0.userData.mats = { fg: [...masses.map((m) => m.material), bough.material, ...lgs.map((m) => m.material)] }; B0.userData.fg = fgGroup;
   return { glowT, puffT };
 }
 

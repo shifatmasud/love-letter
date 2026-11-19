@@ -144,7 +144,7 @@ uniform vec2 uPtr, uSpark;
 varying vec2 vUv;
 float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 void main(){
-  // painted sky: morning blue with a big soft sun (the reference), late gold above the trees, then deep blue night.
+  // painted sky: morning blue with no sun disc, late gold above the trees, then deep blue night.
   // the old sky painting is only used as brush texture so the gradient never looks digital.
   float span = clamp(uTexAspect / uAspect, 0.32, 0.62);
   float sx = min(1.0, span * uAspect / uTexAspect);
@@ -157,13 +157,8 @@ void main(){
   vec3 top = mix(mix(mix(vec3(0.30, 0.47, 0.76), vec3(0.47, 0.56, 0.84), k1), vec3(0.24, 0.29, 0.58), kd), vec3(0.04, 0.06, 0.16), kn);
   vec3 hor = mix(mix(mix(vec3(0.90, 0.93, 0.94), vec3(0.98, 0.86, 0.78), k1), vec3(1.0, 0.70, 0.50), kd), vec3(0.17, 0.20, 0.40), kn);
   vec3 col = mix(hor, top, pow(smoothstep(0.05, 1.0, y), 0.8));
-  // sun: soft disc + wide warm bloom painted into the sky (no post bloom)
-  vec2 sp0 = vec2(0.66, mix(mix(0.66, 0.42, k1), -0.04, smoothstep(0.0, 0.55, k2))); // the sun sets below the cloud sea before dusk is full
-  vec2 sd = (vUv - sp0) * vec2(uAspect, 1.0);
-  float r = length(sd);
+  // no sun (Shifat): only the warm sky gradient carries the light. dayOn fades the day wisps out at dusk.
   float sunOn = 1.0 - smoothstep(0.25, 0.55, k2);
-  col = mix(col, vec3(1.0, 0.97, 0.88), smoothstep(0.62, 0.0, r) * 0.55 * sunOn * (1.0 - smoothstep(0.82, 0.97, y) * 0.8));
-  col = mix(col, mix(vec3(1.0, 0.99, 0.93), vec3(1.0, 0.80, 0.55), kd), smoothstep(mix(0.125, 0.14, kd), mix(0.115, 0.09, kd), r) * mix(0.92, 0.6, kd) * sunOn); // softer, dimmer disc as it sinks into haze
   // drifting painted wisps (day only)
   vec2 q = vec2(vUv.x * uAspect * 1.6 + uTime * 0.004, vUv.y * 4.0);
   float w = smoothstep(0.12, 0.42, sin(q.x * 2.1 + sin(q.y * 1.7) * 1.3) * 0.5 + 0.5 + brush * 1.6 - abs(y - 0.64) * 3.2);
