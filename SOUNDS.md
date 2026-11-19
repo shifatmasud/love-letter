@@ -30,3 +30,13 @@ Sound starts only after the first tap or key press.
 ## Procedural (not a file)
 
 - **Letter paper:** made live in Web Audio (`paper()` in js/audio.js), Shifat's one exception to recorded sounds. A band-passed noise rustle plus random micro-crackles, after the crumple and rustle models in Andy Farnell's *Designing Sound*. Pointer speed sets loudness, crackle count and brightness; direction sets the filter sweep and pan. Low-passed at 5.5 kHz, every grain has a soft attack. Plays on the interaction channel.
+
+## Levels (subtle mix)
+
+Shifat: "Reduce volume of sounds so they are subtle." Peaks as they leave, measured with `python3 tools/levels.py`:
+
+- Beds (low-passed): about -25 dBFS by the house, -30 with the balloon, -31 for night crickets (before the 0.8 master, so about 2 dB lower out).
+- Taps: house creak -21, crackle -23, balloon cloth -21, nature swoosh -21 at its loudest.
+- Letter paper: -29 on a slow move, -19 on a fast move, -22 on a tap.
+
+Taps sit on their own bus at TAP = 0.14; beds are BEDS in js/audio.js. UI sounds (js/ui-sound.js) are separate and unchanged.

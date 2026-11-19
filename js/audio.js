@@ -11,13 +11,17 @@ const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let muted = false;
 try { muted = localStorage.getItem(KEY) === '1'; } catch (_) {}
 
-// beds: every file is low-passed at 2.4 kHz (6-pole) and levelled to -23 LUFS, then played low: about -36 to -41 LUFS out
-const BEDS = { pines: 0.22, leaves: 0.08, fire: 0.06, air: 0.22, night: 0.16 };
-// scene taps (house, balloon, letter, plants, sky): levelled to a -1.3 dBFS peak with short fades; they play loud, on their own bus
+// beds: every file is low-passed at 2.4 kHz (6-pole) and levelled to -23 LUFS. Shifat: "Reduce volume of sounds so they are subtle."
+// So they play half as loud as before (-6 dB): about -42 to -47 LUFS out, under the taps.
+const BEDS = { pines: 0.11, leaves: 0.04, fire: 0.03, air: 0.11, night: 0.08 };
+// scene taps (house, balloon, letter, plants, sky): files levelled to a -1.3 dBFS peak with short fades, then turned down on their bus
+// by TAP (-17 dB), so a full-volume tap peaks near -21 dBFS (tools/levels.py measures it): a little above the beds, still subtle. The paper uses the same bus.
+const TAP = 0.14;
 // nature (grass, monstera, pines, clouds) has one sound only: a soft recorded air push. The letter's paper is procedural (paper()).
 const TAPS = new Set(['creak', 'crackle', 'cloth', 'airpush']);
 const SHOTS = ['creak', 'crackle', 'cloth', 'airpush'];
 const MASTER = 0.8;
+const meter = {};
 let ctx = null, out = null, bedBus = null, tapBus = null, started = false, ext = 'webm';
 const buf = {}, bed = {};
 let lastP = 0;
@@ -67,10 +71,13 @@ async function boot() {
   bedBus = ctx.createBiquadFilter(); bedBus.type = 'lowpass'; bedBus.frequency.value = 2500; bedBus.Q.value = 0.5;
   const bedLp2 = ctx.createBiquadFilter(); bedLp2.type = 'lowpass'; bedLp2.frequency.value = 2500; bedLp2.Q.value = 0.5;
   bedBus.connect(bedLp2); bedLp2.connect(out);
-  // scene taps: loud and clear, past the master glue, with a brick-wall limiter at -1 dBFS so overlaps never clip
-  tapBus = ctx.createGain(); tapBus.gain.value = muted ? 0 : 1;
+  // scene taps: past the master glue, with a brick-wall limiter at -1 dBFS so overlaps never clip
+  tapBus = ctx.createGain(); tapBus.gain.value = muted ? 0 : TAP;
   const lim = ctx.createDynamicsCompressor(); lim.threshold.value = -1.5; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.1;
   tapBus.connect(lim); lim.connect(ctx.destination);
+  // level meters for checks (tools): peak dBFS of the taps and of the beds as they leave
+  meter.t = ctx.createAnalyser(); meter.b = ctx.createAnalyser(); meter.t.fftSize = meter.b.fftSize = 2048;
+  lim.connect(meter.t); bedLp2.connect(meter.b);
   if (ctx.state === 'suspended') ctx.resume();
   const near = lastP < 0.8 ? ['pines', 'leaves', 'fire'] : lastP < 1.6 ? ['air'] : ['night'];
   const order = [...near, ...Object.keys(BEDS).filter((b) => !near.includes(b))];
@@ -208,7 +215,7 @@ if (btn) {
     muted = m;
     try { m ? localStorage.setItem(KEY, '1') : localStorage.removeItem(KEY); } catch (_) {}
     btn.setAttribute('aria-pressed', String(!m)); btn.setAttribute('aria-label', m ? 'Sound off' : 'Sound on');
-    if (ctx && out) { const t = ctx.currentTime; out.gain.cancelScheduledValues(t); out.gain.setValueAtTime(out.gain.value, t); out.gain.linearRampToValueAtTime(m ? 0 : MASTER, t + (m ? 0.32 : 0.05)); tapBus.gain.cancelScheduledValues(t); tapBus.gain.setValueAtTime(tapBus.gain.value, t); tapBus.gain.linearRampToValueAtTime(m ? 0 : 1, t + (m ? 0.32 : 0.05)); if (!m && ctx.state === 'suspended') ctx.resume(); }
+    if (ctx && out) { const t = ctx.currentTime; out.gain.cancelScheduledValues(t); out.gain.setValueAtTime(out.gain.value, t); out.gain.linearRampToValueAtTime(m ? 0 : MASTER, t + (m ? 0.32 : 0.05)); tapBus.gain.cancelScheduledValues(t); tapBus.gain.setValueAtTime(tapBus.gain.value, t); tapBus.gain.linearRampToValueAtTime(m ? 0 : TAP, t + (m ? 0.32 : 0.05)); if (!m && ctx.state === 'suspended') ctx.resume(); }
     kick();
   };
   btn.setAttribute('aria-pressed', String(!muted)); btn.setAttribute('aria-label', muted ? 'Sound off' : 'Sound on');
@@ -216,4 +223,8 @@ if (btn) {
   btn.addEventListener('click', () => { boot(); if (muted) { set(false); UI.setMuted(false); UI.S.on(); } else { UI.S.off(); set(true); UI.setMuted(true); } });
 }
 
-export const Sound = { mix, play, air, paper, boot, preload, count: Object.keys(BEDS).length + SHOTS.length, get on() { return !!ctx && !muted; } };
+function peaks() { // [taps, beds] peak dBFS in the last ~43 ms (beds before MASTER 0.8, about -2 dB more)
+  const f = (a) => { if (!a) return null; const d = new Float32Array(a.fftSize); a.getFloatTimeDomainData(d); let m = 0; for (const v of d) m = Math.max(m, Math.abs(v)); return m ? 20 * Math.log10(m) : -120; };
+  return [f(meter.t), f(meter.b)];
+}
+export const Sound = { peaks, mix, play, air, paper, boot, preload, count: Object.keys(BEDS).length + SHOTS.length, get on() { return !!ctx && !muted; } };
