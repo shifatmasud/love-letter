@@ -14,21 +14,11 @@ export const cardVert = /* glsl */ `
 ${INST}
 uniform float uTime, uSway, uRustle, uHang, uAspect;
 uniform vec2 uPtr;
-uniform float uBend, uFog;
+uniform float uBend;
 varying vec2 vUv;
 varying vec3 vTint;
-varying float vFog;
 void main(){
   vUv = uv;
-  // ground fog for the grass (uFog 1): the same depth ramp as the moss floor, so far clumps melt into the haze like the floor and
-  // pines behind them, plus a low mist that wraps the clump bases from the house back. The nearest rows stay clear.
-  vFog = 0.0;
-  if (uFog > 0.0) {
-    float dz = 10.0 - IM[3].z;
-    float fd = 0.85 * pow(clamp((dz - 12.0) / 60.0, 0.0, 1.0), 0.8);
-    float mist = 0.3 * smoothstep(5.0, 13.0, dz) * pow(1.0 - uv.y, 1.5);
-    vFog = uFog * (1.0 - (1.0 - fd) * (1.0 - mist));
-  }
   vec3 p = position;
   // gentle cup for real-geometry leaves (smooth, not faceted)
   p.z += uBend * (-(p.x * p.x) * 0.9 + (p.y + 0.5) * (p.y + 0.5) * -0.35);
@@ -55,12 +45,10 @@ void main(){
 export const cardFrag = /* glsl */ `
 uniform sampler2D uMap;
 uniform vec3 uTint, uHaze;
-uniform float uHazeAmt, uOpacity, uCut, uBright, uFadeTop, uFadeBot, uInkFade, uClearTop;
-uniform vec2 uHdr;
+uniform float uHazeAmt, uOpacity, uCut, uBright, uFadeTop, uFadeBot, uInkFade;
 uniform vec2 uTexel;
 varying vec2 vUv;
 varying vec3 vTint;
-varying float vFog;
 void main(){
   vec4 c = texture2D(uMap, vUv);
   // ink fades with depth: far cards lift their thin dark lines toward the paint around them (style.md)
@@ -73,12 +61,10 @@ void main(){
   }
   float a = c.a;
   if (uFadeBot > 0.0) a *= smoothstep(0.0, uFadeBot, vUv.y);
-  if (uClearTop > 0.0) { float fromTop = uHdr.x - gl_FragCoord.y; a *= smoothstep(uHdr.y * 0.9, uHdr.y * 2.2, fromTop); }
   if (uFadeTop > 0.0) a *= smoothstep(1.0, 1.0 - uFadeTop, vUv.y);
   if (uCut > 0.0) { if (a < uCut) discard; a = 1.0; }
   vec3 col = c.rgb * uTint * vTint * uBright;
   col = mix(col, uHaze, uHazeAmt);
-  col = mix(col, uHaze, vFog); // paint and ink fade together, like the far pine rows
   gl_FragColor = vec4(col, a * uOpacity);
 }`;
 
