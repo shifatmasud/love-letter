@@ -43,9 +43,16 @@ ${INST}
 uniform float uTime, uSway, uRustle, uAspect;
 uniform vec2 uPtr;
 uniform float uBend, uFog;
+// tap spring (Shifat: "Click on anything should add gentle motion"). uPoke = tap point in NDC + seconds since the tap, uPokeA = global
+// amount (0 with reduced motion), uPokeK = this layer's amount in NDC, how tight the reach is, and the mode (0 plant, 1 cloud,
+// 2 monstera). The curve (t/tau)*e^(1 - t/tau) is a critically damped impulse: it eases out, eases back and never overshoots.
+uniform vec3 uPoke, uPokeK;
+uniform float uPokeA;
 varying vec2 vUv;
 varying vec3 vTint;
 varying float vFog;
+varying float vShim;
+float pokeEnv(float t, float tau){ t = max(t, 0.0) / tau; return t * exp(1.0 - t); }
 #ifdef GMAP
 uniform vec4 uGMapS; // ground -> map space (as layoutGrass): house x, house z, 1/house scale, front foot z
 uniform vec2 uGMapK; // map z at the front foot, stretch from there to the monstera line
@@ -75,14 +82,36 @@ void main(){
   vec4 wp = modelMatrix * (IM * vec4(p, 1.0));
   float w = uv.y * uv.y;
   float ph = wp.x * 0.7 + wp.z * 0.45 + IM[3].x * 1.3;
-  wp.x += (sin(uTime * 1.05 + ph) + 0.35 * sin(uTime * 2.3 + ph * 1.7)) * uSway * w;
-  wp.y += cos(uTime * 0.9 + ph) * uSway * 0.25 * w;
+  // slow, small idle sway (Shifat: "All motion should be gentle, calm")
+  wp.x += (sin(uTime * 0.8 + ph) + 0.3 * sin(uTime * 1.55 + ph * 1.7)) * uSway * w;
+  wp.y += cos(uTime * 0.7 + ph) * uSway * 0.2 * w;
+  vec4 cp = projectionMatrix * viewMatrix * wp;
+  vec2 ndc = cp.xy / cp.w;
   if (uRustle > 0.0) {
-    vec4 cp = projectionMatrix * viewMatrix * wp;
-    vec2 d = (cp.xy / cp.w - uPtr) * vec2(uAspect, 1.0);
+    // hover: a calm lean away from the pointer that breathes slowly (it was a 13 Hz shiver, which read as jitter)
+    vec2 d = (ndc - uPtr) * vec2(uAspect, 1.0);
     float r = exp(-dot(d, d) * 9.0);
-    wp.x += sin(uTime * 13.0 + ph * 3.0) * uRustle * r * w;
-    wp.y += cos(uTime * 10.0 + ph * 2.0) * uRustle * r * w * 0.35;
+    wp.x += (d.x / (abs(d.x) + 0.08)) * uRustle * r * w * (0.75 + 0.25 * sin(uTime * 1.6 + ph));
+    wp.y -= uRustle * r * w * 0.15;
+  }
+  vShim = 0.0;
+  vec2 off = vec2(0.0);
+  if (uPokeK.x > 0.0 && uPokeA > 0.0) {
+    vec2 d = (ndc - uPoke.xy) * vec2(uAspect, 1.0);
+    float dl = length(d);
+    float r = exp(-dl * dl * uPokeK.y);
+    vec2 dir = d / (dl + 0.06);
+    float k = uPokeK.x * uPokeA * r;
+    if (uPokeK.z < 0.5) {            // grass and pines: bend away from the tap at the tips and spring back
+      off = vec2(dir.x, -0.25) * k * w * pokeEnv(uPoke.z - dl * 0.35, 0.24);
+    } else if (uPokeK.z < 1.5) {     // clouds: a slow drift and a slight bob
+      off = vec2(dir.x * 0.8, 0.5) * k * pokeEnv(uPoke.z, 0.4);
+    } else {                         // monstera: bend away, a soft ripple runs up the leaf, neighbours follow a beat later
+      float e = pokeEnv(uPoke.z - dl * 0.6, 0.3);
+      float rip = sin(uv.y * 8.0 - uPoke.z * 7.0) * exp(-uPoke.z * 2.2);
+      off = vec2(dir.x * (1.0 + 0.35 * rip), -0.2 + 0.25 * rip) * k * w * e;
+      vShim = e * r * uPokeA;
+    }
   }
   #ifdef USE_INSTANCING_COLOR
     vTint = instanceColor;
@@ -90,6 +119,7 @@ void main(){
     vTint = vec3(1.0);
   #endif
   gl_Position = projectionMatrix * viewMatrix * wp;
+  gl_Position.xy += off * gl_Position.w; // the tap spring works in screen units, so near and far layers move the same calm amount
 }`;
 
 export const cardFrag = G(/* glsl */ `
@@ -101,6 +131,7 @@ uniform vec2 uTexel;
 varying vec2 vUv;
 varying vec3 vTint;
 varying float vFog;
+varying float vShim;
 #ifdef GMAP
 uniform sampler2D uGMap; // the grass map: black = no grass
 varying vec2 vGm;
@@ -127,6 +158,7 @@ void main(){
   vec3 col = c.rgb * uTint * vTint * uBright;
   col = mix(col, uHaze, uHazeAmt);
   col = mix(col, uHaze, vFog); // paint and ink fade together, like the far pine rows
+  col += vShim * 0.07 * smoothstep(0.25, 0.8, dot(c.rgb, vec3(0.333))); // tapped monstera: a faint shimmer on the lit leaf
   gl_FragColor = vec4(col, a * uOpacity);
 }`);
 

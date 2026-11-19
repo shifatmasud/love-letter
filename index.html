@@ -135,7 +135,7 @@ footer .dim{color:rgba(245,243,239,.62)}
      One tiny raymarched SDF shader in its own canvas, inline, so it shows before anything else loads.
      Water: two waves, the back one darker (Beider's Godot "Liquid progress bar"), and a slosh tilt driven by the fill speed (MinionsArt's wobble). -->
 <style>
-#pre{position:fixed;inset:0;z-index:100;background:#000;display:grid;place-items:center;transition:transform .95s cubic-bezier(.76,0,.24,1),opacity .35s ease;will-change:transform}
+#pre{position:fixed;inset:0;z-index:100;background:#000;display:grid;place-items:center;transition:transform 1.3s cubic-bezier(.65,0,.35,1),opacity .5s ease;will-change:transform}
 #pre canvas{width:176px;height:72px;display:block}
 #pre.up{transform:translate3d(0,-100%,0)}
 html.pre-lock,html.pre-lock body{overflow:hidden;overscroll-behavior:none}
@@ -216,7 +216,7 @@ function reveal(){
 el.classList.add('up');
 var fin2=function(){if(!el.isConnected)return;cancelAnimationFrame(raf);el.remove();d.documentElement.classList.remove('pre-lock');if(gl){var x=gl.getExtension('WEBGL_lose_context');x&&x.loseContext();}};
 setTimeout(function(){d.documentElement.classList.remove('pre-lock');cb&&cb();cb=null;},R?120:780);
-el.addEventListener('transitionend',fin2);setTimeout(fin2,1400);}
+el.addEventListener('transitionend',fin2);setTimeout(fin2,1900);}
 window.__pre={add:function(n){total+=n||1;},tick:function(n){fin+=n||1;var t=Math.min(.97,fin/Math.max(total,1));if(t>target){target=t;creep=0;}},done:function(f){cb=f;end=true;},get n(){return [fin,total];}};
 raf=requestAnimationFrame(loop);
 })();</script>

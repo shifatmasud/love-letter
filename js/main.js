@@ -65,6 +65,8 @@ const U = {
   ptr: { value: new THREE.Vector2(9, 9) }, aspect: { value: 1 },
   // header band in drawing-buffer px from the top: [buffer height, band bottom]. Clouds thin out inside it (see cardFrag uClearTop)
   hdr: { value: new THREE.Vector2(1, 0) },
+  // tap spring: tap point in NDC + seconds since; amount (0 with reduced motion). See cardVert.
+  poke: { value: new THREE.Vector3(0, 0, 99) }, pokeA: { value: 1 },
 };
 
 // ---------- textures ----------
@@ -112,6 +114,7 @@ function cardMat(map, o = {}) {
       uBright: { value: o.bright ?? 1 }, uFadeTop: { value: o.fadeTop ?? 0 }, uFadeBot: { value: o.fadeBot ?? 0 },
       uTime: U.time, uSway: { value: reduce ? 0 : (o.sway ?? 0) }, uRustle: { value: o.rustle ?? 0 },
       uFog: { value: o.fog ?? 0 }, uClearTop: { value: o.clearTop ?? 0 }, uHdr: U.hdr, uPtr: U.ptr, uAspect: U.aspect, uBend: { value: o.bend ?? 0 },
+      uPoke: U.poke, uPokeA: U.pokeA, uPokeK: { value: new THREE.Vector3(...(o.poke ?? [0, 0, 0])) },
       ...(o.gmap ? { uGMapS: o.gmap.s, uGMapK: o.gmap.k, uGMap: o.gmap.map, uGMapB: o.gmap.b } : {}),
     },
     vertexShader: S.cardVert, fragmentShader: S.cardFrag, defines: o.gmap ? { GMAP: '' } : {},
@@ -162,7 +165,8 @@ async function loadGrassMap(G) {
     const bmp = await createImageBitmap(await (await fetch(asset('/tex/grass-map.png'))).blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
     const cv = document.createElement('canvas'); cv.width = bmp.width; cv.height = bmp.height; const cx = cv.getContext('2d', { willReadFrequently: true });
     cx.drawImage(bmp, 0, 0); const px = cx.getImageData(0, 0, bmp.width, bmp.height).data;
-    G.w = bmp.width; G.h = bmp.height; G.data = new Uint8Array(G.w * G.h); for (let i = 0; i < G.data.length; i++) G.data[i] = px[i * 4];
+    G.w = bmp.width; G.h = bmp.height; G.data = new Uint8Array(G.w * G.h); G.cap = new Uint8Array(G.w * G.h);
+    for (let i = 0; i < G.data.length; i++) { G.data[i] = px[i * 4]; G.cap[i] = px[i * 4 + 1]; } // red = grass, green = height cap
     const [x0, z0, x1, z1] = meta.bounds; G.meta = meta;
     G.b.value.set(x0, z1, 1 / (x1 - x0), 1 / (z1 - z0)); // uv.x = (x - x0) / w, uv.y = (z1 - z) / h (image top row = far edge)
     const t = new THREE.Texture(cv); t.flipY = true; t.colorSpace = THREE.NoColorSpace; t.minFilter = t.magFilter = THREE.LinearFilter; t.generateMipmaps = false;
@@ -170,13 +174,13 @@ async function loadGrassMap(G) {
   } catch (e) { console.warn('grass map missing', e); const t = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1); t.needsUpdate = true; G.map.value = t; }
   pre.tick();
 }
-function gmapAt(G, x, z) { // bilinear, same as the shader
-  if (!G.data) return 1;
+function gmapAt(G, x, z, ch = 'data') { // bilinear, same as the shader
+  if (!G[ch]) return 1;
   const b = G.b.value, u = (x - b.x) * b.z * G.w - 0.5, v = (b.y - z) * b.w * G.h; // v measured from the bottom row up
   const row = G.h - 1 - (v - 0.5); // image row (top = 0)
   const cl = (a, n) => Math.min(n - 1, Math.max(0, a));
   const x0 = Math.floor(u), y0 = Math.floor(row), fx = u - x0, fy = row - y0;
-  const g = (i, j) => G.data[cl(j, G.h) * G.w + cl(i, G.w)];
+  const g = (i, j) => G[ch][cl(j, G.h) * G.w + cl(i, G.w)];
   return ((g(x0, y0) * (1 - fx) + g(x0 + 1, y0) * fx) * (1 - fy) + (g(x0, y0 + 1) * (1 - fx) + g(x0 + 1, y0 + 1) * fx) * fy) / 255;
 }
 function vh(dist) { return 2 * dist * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)); }
@@ -252,7 +256,7 @@ async function build() {
   // that one card, and only scale, value and haze change with distance (aerial perspective, notes/composition.md)
   const pineRow = (z, span, n, hTop, haze, val, ro, seed, name) => {
     const pr = mulberry(seed), a = tPine.userData.aspect, g = new THREE.PlaneGeometry(1, a); g.translate(0, a / 2, 0);
-    const m = new THREE.InstancedMesh(g, cardMat(tPine, { cut: 0.5, sway: 0.03, haze }), n);
+    const m = new THREE.InstancedMesh(g, cardMat(tPine, { cut: 0.5, sway: 0.022, haze, poke: [0.008, 3, 0] }), n);
     for (let i = 0; i < n; i++) {
       const x = -span / 2 + (i + 0.15 + pr() * 0.7) * (span / n), zz = z - pr() * 6;
       const h = hTop * (0.72 + pr() * 0.4), sc = h / a; const v = val * (0.9 + pr() * 0.12);
@@ -292,7 +296,7 @@ async function build() {
       pines.push([x, z, (back ? 21 : 14) + pr() * 4, back ? 0.78 : 0.95]);
     }
   }
-  const pineMesh = new THREE.InstancedMesh(pineGeo, cardMat(tPine, { cut: 0.5, sway: 0.08, haze: 0.0 }), pines.length);
+  const pineMesh = new THREE.InstancedMesh(pineGeo, cardMat(tPine, { cut: 0.5, sway: 0.06, haze: 0.0, poke: [0.012, 3, 0] }), pines.length);
   pines.forEach(([x, z, h0, k], i) => {
     // tops stay just under the balloon's eye line (y 15.5): taller pines poked up beside the balloon in beat 2
     // cap by distance: at beat 2 (scene 16 lower) every top must sit under the cloud line (screen y < -0.2), never beside the basket
@@ -440,7 +444,8 @@ async function build() {
   const leafGeo = new THREE.PlaneGeometry(1, 1, 10, 10); leafGeo.translate(0, 0.5, 0);
   const mk = (t, n, o) => { const g = leafGeo.clone(); g.scale(1, t.userData.aspect, 1); const m = new THREE.InstancedMesh(g, cardMat(t, { cut: 0.5, ...o }), n); m.frustumCulled = false; fgGroup.add(m); return m; };
   // plant masses: few, big and simple (notes/style.md), framing the lower corners like the bracken under real pines
-  const masses = [mk(tMass1, 5, { sway: 0.012, rustle: 0.0 }), mk(tMass2, 5, { sway: 0.012, rustle: 0.0 })];
+  // tap: bend away + leaf ripple + neighbours follow + faint shimmer (mode 2); desktop hover: a smaller calm lean (rustle)
+  const masses = [mk(tMass1, 5, { sway: 0.01, rustle: 0.025, poke: [0.03, 4, 2] }), mk(tMass2, 5, { sway: 0.01, rustle: 0.025, poke: [0.03, 4, 2] })];
   // long grass: one instanced draw of alpha-tested painted clumps that live in the world, not in the frame
   // only long curvy blades (Shifat): two clean painted clumps, 3 flat values, no tufts, no seed heads
   // grass map (tools/bake_grass_map.py): one top-down PNG over the hero ground, white = grass, black = none, gray = the soft edge.
@@ -450,13 +455,13 @@ async function build() {
   await loadGrassMap(GMAP);
   const NG = LOW ? 1100 : 1700; // per card, so up to 2 x NG clumps
   const lgs = [tLong, tLong2].map((t, k) => { const g = new THREE.PlaneGeometry(1, 1, 1, 4); g.translate(0, 0.5, 0); g.scale(1, t.userData.aspect, 1);
-    const m = new THREE.InstancedMesh(g, cardMat(t, { cut: 0.5, sway: 0.08, rustle: 0.03, bend: 0.6, fog: 1, gmap: GMAP }), NG); m.frustumCulled = false; m.name = k ? 'longgrass2' : 'longgrass'; B0.add(m); return m; });
+    const m = new THREE.InstancedMesh(g, cardMat(t, { cut: 0.5, sway: 0.06, rustle: 0.02, bend: 0.6, fog: 1, gmap: GMAP, poke: [0.018, 5, 0] }), NG); m.frustumCulled = false; m.name = k ? 'longgrass2' : 'longgrass'; B0.add(m); return m; });
   const lg = lgs[0];
   const floor = card(tGround, 1, { cut: 0.5, tint: 0xb9b2a0 }); floor.geometry = leafGeo.clone(); floor.geometry.scale(1, tGround.userData.aspect, 1);
   const floorMesh = new THREE.InstancedMesh(floor.geometry, floor.material, 3); floorMesh.frustumCulled = false;
   const PLANE = { mass: 1.25 };
   const tint = (m, i, k, h = 0) => { const v = k * (PLANE[m.name] ?? 1); m.setColorAt(i, new THREE.Color().setRGB(v, v * 1.0, v * 0.98).lerp(PAL[0].haze, h)); };
-  const fgPines = new THREE.InstancedMesh(pineGeo, cardMat(tPine, { cut: 0.5, sway: 0.03, haze: 0.0 }), 2); fgPines.frustumCulled = false; fgPines.name = 'fgpines'; fgGroup.add(fgPines);
+  const fgPines = new THREE.InstancedMesh(pineGeo, cardMat(tPine, { cut: 0.5, sway: 0.022, haze: 0.0, poke: [0.012, 2.5, 0] }), 2); fgPines.frustumCulled = false; fgPines.name = 'fgpines'; fgGroup.add(fgPines);
   masses.forEach((m) => (m.name = 'mass')); floorMesh.name = 'floorMesh';
   const GROUND = -0.66; // the monstera band in front has no grass: it is black in the grass map (FGZ in tools/bake_grass_map.py)
   onLayout(() => {
@@ -467,27 +472,22 @@ async function build() {
     // screen they shrank and slid past the edges, and the near grass rows (closer to the camera) covered the rest.
     // Now each clump keeps its share of the frame HEIGHT, anchored to the edge, so phone and desktop show the same picture.
     const [m1, m2] = masses; const fk = THREE.MathUtils.clamp((camera.aspect - 0.46) / (1.6 - 0.46), 0, 1);
-    // [mesh, i, z, phone (cx, bottom, h), desk (cx, bottom, h), flip, tone, haze]  cx/bottom in NDC, h = NDC height
+    // Shifat: "Too much monstera plant. Make it subtle, rotated to guide eyes to house." So only 4 small clumps, two in each bottom
+    // corner, and the bottom middle stays clear. Each one is flipped so its leaves lean inward, then turned about its base (rz) so its
+    // leaves and stems point in and up toward the house, like leading lines. The painting leans left, so left clumps are flipped.
+    // [mesh, i, z, phone (cx, bottom, h), desk (cx, bottom, h), flip, tone, haze, rz]  cx/bottom in NDC, h = NDC height, rz in radians
     const MON = [
-      // phone: big leaves come in from both sides and stand above the grass (they were centred past the edge, 40 px showed)
-      [m1, 0, 5.2, [-0.78, -1.16, 1.02], [-0.9, -1.18, 1.36], 1, 0.62, 0],
-      [m2, 0, 5.0, [0.8, -1.14, 0.94], [0.885, -1.12, 0.98], -1, 0.66, 0],
-      [m1, 1, 5.6, [0.42, -1.3, 0.5], [0.6, -1.43, 0.99], -1, 0.56, 0],
-      [m2, 1, 2.4, [-0.9, -1.0, 0.5], [-0.94, -1.04, 0.6], 1, 0.82, 0.05],
-      [m2, 2, 2.2, [0.92, -0.98, 0.44], [0.975, -0.99, 0.51], -1, 0.85, 0.06],
-      [m1, 2, 2.6, [-0.3, -1.34, 0.4], [-0.245, -1.36, 0.47], 1, 0.8, 0.05],
-      // foreground band (Shifat: "add monstera plant in fg, no need grass on fg"): low clumps across the bottom centre fill the nearest
-      // ground where the grass used to be. Their tops stay under the house's foot line on phone and desktop.
-      [m2, 3, 3.6, [-0.42, -1.22, 0.94], [-0.5, -1.26, 0.74], -1, 0.74, 0.02],
-      [m1, 3, 3.9, [0.12, -1.3, 1.02], [0.02, -1.3, 0.76], 1, 0.7, 0.02],
-      [m2, 4, 3.3, [0.6, -1.24, 0.9], [0.48, -1.24, 0.7], 1, 0.76, 0.03],
-      [m1, 4, 4.4, [-0.1, -1.42, 0.6], [-0.28, -1.38, 0.56], -1, 0.66, 0.0],
+      [m1, 0, 5.2, [-0.9, -1.12, 0.6], [-0.95, -1.14, 0.74], -1, 0.62, 0, -0.32],
+      [m2, 1, 2.4, [-1.0, -1.0, 0.32], [-0.99, -1.02, 0.36], -1, 0.8, 0.05, -0.5],
+      [m2, 0, 5.0, [0.9, -1.12, 0.54], [0.94, -1.12, 0.64], 1, 0.66, 0, 0.32],
+      [m1, 1, 2.6, [1.0, -1.0, 0.3], [0.99, -1.0, 0.34], 1, 0.82, 0.05, 0.5],
     ];
-    for (const [m, i, z, ph, dk, flip, tone, hz] of MON) {
+    m1.count = 2; m2.count = 2; // only slots 0 and 1 of each are used, so nothing else draws
+    for (const [m, i, z, ph, dk, flip, tone, hz, rz] of MON) {
       const [cx, by, h] = ph.map((v, k) => THREE.MathUtils.lerp(v, dk[k], fk));
       const q = at(z), ta = (m === m1 ? tMass1 : tMass2).userData.aspect;
       const hw = h * q.H / 2, w = hw / ta; // world height and width
-      m.setMatrixAt(i, mat(cx * q.Wd / 2, by * q.H / 2, z, w * flip, w, 1)); tint(m, i, tone, hz);
+      m.setMatrixAt(i, mat(cx * q.Wd / 2, by * q.H / 2, z, w * flip, w, 1, 0, 0, rz)); tint(m, i, tone, hz);
     }
     // two foreground framing pines, composed like a forest photo: not mirrored, the left one nearer and taller, both trunks cut by the
     // frame edges, crowns cropped by the top. Same painted pine as the midground, a little darker. Placed in NDC of the resting frame and
@@ -521,7 +521,7 @@ async function build() {
     // from the front foot (zk) to the monstera line (FGZ) z stretches linearly, so the monstera line is FGZ on every screen
     const FGZ = GMAP.meta?.fgz ?? 2, zk = fp.zk, qk = fp.hz + (zk - fp.hz) / s, k2 = (FGZ - qk) / (FGZ - zk);
     GMAP.s.value.set(fp.hx, fp.hz, 1 / s, zk); GMAP.k.value.set(qk, k2);
-    const at = (x, z) => gmapAt(GMAP, fp.hx + (x - fp.hx) / s, z <= zk ? fp.hz + (z - fp.hz) / s : qk + (z - zk) * k2);
+    const at = (x, z, ch) => gmapAt(GMAP, fp.hx + (x - fp.hx) / s, z <= zk ? fp.hz + (z - fp.hz) / s : qk + (z - zk) * k2, ch);
     const h = GH * s, wf = 1.85;
     const tn = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
     const tx = tn * Math.max(camera.aspect, 0.4) * 1.25, ox = -B0.position.x;
@@ -537,7 +537,9 @@ async function build() {
         const flip = gr() < 0.5 ? -1 : 1, yaw = (gr() - 0.5) * 0.5, lean = (gr() - 0.5) * 0.1, v = THREE.MathUtils.lerp(1.0, 0.9, gr());
         if (gr() >= at(x, z) || cnt[k] >= NG) continue;
         const j = cnt[k]++;
-        m.setMatrixAt(j, mat(x, GROUND - 0.04, z, h / t.userData.aspect * wf * flip, h / t.userData.aspect, 1, 0, yaw, lean));
+        // even short grass; only right next to the house the map's green channel shortens a clump so its tip stays below the porch floor
+        const hk = h * Math.min(1, at(x, z, 'cap') + 0.02);
+        m.setMatrixAt(j, mat(x, GROUND - 0.04, z, hk / t.userData.aspect * wf * flip, hk / t.userData.aspect, 1, 0, yaw, lean));
         // Grass fog: distance fog is a real mix in the shader (uFog); this tint only varies the value a little
         m.setColorAt(j, new THREE.Color().setRGB(v, v, v * 0.97).lerp(PAL[0].haze, 0.04));
       }
@@ -555,6 +557,8 @@ async function build() {
   let winGlow = 0;
   const scat = new THREE.Vector3(); let scatT = -9;
   B0.userData.update = (t, dt) => {
+    // house: a tiny settle on tap (squash under 1%, critically damped impulse, no overshoot)
+    houseT += dt; { const k = houseT / 0.22, e = houseT < 2 ? k * Math.exp(1 - k) : 0; house.scale.y = house.scale.x * (1 - 0.007 * e); }
     // smoke
     const rate = 0.12 + smokeBoost * 0.6; smokeBoost = Math.max(0, smokeBoost - dt * 0.6);
     for (let i = 0; i < NS; i++) {
@@ -595,7 +599,7 @@ async function build() {
     bGeo.attributes.position.needsUpdate = true;
   };
   B0.userData.hits = [
-    { obj: houseHit, hover: () => { winGlow = Math.max(winGlow, 0.5); }, tap: () => { winGlow = 1.4; smokeBoost = 2.2; Sound.play('creak', 1); setTimeout(() => Sound.play('crackle', 0.8), 220); } },
+    { obj: houseHit, hover: () => { winGlow = Math.max(winGlow, 0.5); }, tap: () => { winGlow = 1.4; smokeBoost = 2.2; houseT = 0; Sound.play('creak', 1); setTimeout(() => Sound.play('crackle', 0.8), 220); } },
   ];
   B0.userData.tapMiss = (pt) => { // tap on the forest: fireflies scatter, leaves rustle
     scat.copy(pt ?? V.set(0, 0.6, -2)); scatT = U.time.value; rustleKick = 1; Sound.air(pt ? pt.x / 8 : 0);
@@ -605,7 +609,7 @@ async function build() {
   return { glowT, puffT };
 }
 
-let rustleKick = 0;
+let rustleKick = 0, houseT = 9;
 
 // ========== BEAT 1: the red balloon ==========
 async function buildBalloon(glowT) {
@@ -656,7 +660,7 @@ async function buildBalloon(glowT) {
   for (const [k, z, fx, fy, sh, a, kind, ro, haze, flip, night] of defs) {
     // header contrast root cause: white cloud cards drift through the top band behind the white header on the climb and in the
     // balloon beat (1.3:1 at scroll 0.5 and 1.25). Clouds now thin out inside that band, so the deep top sky shows there (scene only, no UI shadow).
-    const m = cc(CL[k], { clearTop: 1, haze, tint: 0xffffff, opacity: 1, inkFade: z < 0 ? Math.min(0.85, Math.max(0, (-z - 15) / 30)) : 0, fadeBot: z < 0 && k !== 'sea' ? 0.32 : 0 }, flip); m.renderOrder = ro; place(m, z, fx, fy, sh, a, kind);
+    const m = cc(CL[k], { clearTop: 1, haze, poke: [0.01, 2, 1], tint: 0xffffff, opacity: 1, inkFade: z < 0 ? Math.min(0.85, Math.max(0, (-z - 15) / 30)) : 0, fadeBot: z < 0 && k !== 'sea' ? 0.32 : 0 }, flip); m.renderOrder = ro; place(m, z, fx, fy, sh, a, kind);
     nightCards.push([m, m.material.uniforms.uTint.value.clone(), night]); if (z > 0) fg.push(m);
   }
 
@@ -706,9 +710,11 @@ async function buildBalloon(glowT) {
   let lift = 0, liftV = 0, flare = 0;
   B1.userData.update = (t, dt) => {
     // bob, slow sway, lift spring
-    liftV += (-lift * 6 - liftV * 2.6) * dt; lift += liftV * dt;
-    bal.position.y = balY + Math.sin(t * 0.6) * 0.12 + lift;
-    bal.rotation.z = Math.sin(t * 0.45) * 0.025; bal.rotation.y = t * 0.05;
+    // lift: critically damped spring (k 4, c 4), so a tap is a soft rise and settle with no overshoot. Sub-stepped so a slow frame
+    // on a phone can't make it step or blow up.
+    for (let h = dt, n = Math.ceil(h / 0.02), s = h / n, j = 0; j < n; j++) { liftV += (-lift * 4 - liftV * 4) * s; lift += liftV * s; }
+    bal.position.y = balY + Math.sin(t * 0.5) * 0.1 + lift;
+    bal.rotation.z = Math.sin(t * 0.38) * 0.02; bal.rotation.y = t * 0.05;
     flare = Math.max(0, flare - dt * 1.4);
     const fk = 0.85 + 0.15 * Math.sin(t * 23) * Math.sin(t * 9.0);
     fl.material.opacity = (0.55 + flare * 0.45) * fk; fl.scale.set(0.3 + flare * 0.25, (0.5 + flare * 0.9) * fk, 1); fl.position.y = -1.8 + flare * 0.18;
@@ -717,7 +723,7 @@ async function buildBalloon(glowT) {
     fg.forEach((m, i) => { m.position.x = m.userData.x + Math.sin(t * 0.07 + i * 2) * 0.15; }); // drift stays tiny so corner clouds never reach the subject
   };
   B1.userData.tapMiss = (pt, ndc) => { Sound.air(ndc.x * 0.5); }; // the cloud sky around the balloon
-  B1.userData.hits = [{ obj: hit, hover: () => { flare = Math.max(flare, 0.25); }, tap: () => { flare = 1.2; liftV += 1.6; Sound.play('cloth', 1); } }];
+  B1.userData.hits = [{ obj: hit, hover: () => { flare = Math.max(flare, 0.25); }, tap: () => { flare = 1.2; liftV += 1.0; Sound.play('cloth', 1); } }];
 }
 
 // ========== BEAT 2: the letter above the clouds ==========
@@ -738,14 +744,14 @@ async function buildLetter() {
   const tilt = new THREE.Vector2(), tiltV = new THREE.Vector2(), tiltT = new THREE.Vector2(); let flut = 0, hov = 0;
   B2.userData.update = (tt, dt) => {
     hov = Math.max(0, hov - dt * 2);
-    tiltV.x += ((tiltT.x * hov) - tilt.x) * dt * 9 - tiltV.x * dt * 4; tiltV.y += ((tiltT.y * hov) - tilt.y) * dt * 9 - tiltV.y * dt * 4;
-    tilt.addScaledVector(tiltV, dt);
-    flut = Math.max(0, flut - dt * 0.5);
-    m.uniforms.uFlut.value = reduce ? 0 : 1 + flut * 3;
+    // critically damped (k 6, c 4.9) and sub-stepped: a soft lean that settles with no overshoot at any frame rate
+    for (let n = Math.max(1, Math.ceil(dt * 120)), h = dt / n, j = 0; j < n; j++) { tiltV.x += (((tiltT.x * hov) - tilt.x) * 6 - tiltV.x * 4.9) * h; tiltV.y += (((tiltT.y * hov) - tilt.y) * 6 - tiltV.y * 4.9) * h; tilt.addScaledVector(tiltV, h); }
+    flut *= Math.exp(-0.9 * dt);
+    m.uniforms.uFlut.value = reduce ? 0 : 1 + flut * 2;
     holder.position.y = letY + Math.sin(tt * 0.5) * 0.1;
-    letter.rotation.set(-0.12 - tilt.y * 0.35 + Math.sin(tt * 0.4) * 0.03, 0.18 + tilt.x * 0.4 + Math.sin(tt * 0.33) * 0.05, 0.06 + Math.sin(tt * 0.3) * 0.02 + flut * 0.04 * Math.sin(tt * 6));
+    letter.rotation.set(-0.12 - tilt.y * 0.35 + Math.sin(tt * 0.4) * 0.03, 0.18 + tilt.x * 0.4 + Math.sin(tt * 0.33) * 0.05, 0.06 + Math.sin(tt * 0.3) * 0.02 + flut * 0.03 * Math.sin(tt * 4.5));
   };
-  B2.userData.hits = [{ obj: hit, hover: (pt) => { hov = 1; const l = holder.worldToLocal(pt.clone()); tiltT.set(l.x / 1.2, l.y / 1.6); }, tap: () => { flut = 1; tiltV.y += 1.5; Sound.paper(900, ptrVx, ptrVy, { tap: true }); }, paper: true }];
+  B2.userData.hits = [{ obj: hit, hover: (pt) => { hov = 1; const l = holder.worldToLocal(pt.clone()); tiltT.set(l.x / 1.2, l.y / 1.6); }, tap: () => { flut = 0.8; tiltV.y += 0.9; Sound.paper(900, ptrVx, ptrVy, { tap: true }); }, paper: true }];
   B2.userData.tapMiss = (pt, ndc) => { skyMat.uniforms.uSpark.value.copy(ndc); skyMat.uniforms.uSparkT.value = 0; Sound.air(ndc.x * 0.5); };
 }
 
@@ -782,13 +788,14 @@ function resize() {
 // tilt that settles to 0. OUT: up and out through the top of the mask, 0.45 s ease-in-out (0.65, 0, 0.35, 1), same stagger.
 // One beat on screen at a time: the incoming beat waits until every leaving line has cleared its mask.
 const beats = [...document.querySelectorAll('.beat')];
-const OUT_DUR = 0.45, IN_DUR = 1.0, STAGGER = 0.075;
+const OUT_DUR = 0.6, IN_DUR = 1.3, STAGGER = 0.09; // calmer (Shifat: "All motion should be gentle, calm")
 function bezier(x1, y1, x2, y2) {
   const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx, cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
   const X = (t) => ((ax * t + bx) * t + cx) * t, Y = (t) => ((ay * t + by) * t + cy) * t, dX = (t) => (3 * ax * t + 2 * bx) * t + cx;
   return (x) => { if (x <= 0) return 0; if (x >= 1) return 1; let t = x; for (let i = 0; i < 6; i++) { const d = dX(t); if (Math.abs(d) < 1e-6) break; t -= (X(t) - x) / d; } t = Math.min(1, Math.max(0, t)); return Y(t); };
 }
-const easeOut = bezier(0.19, 1, 0.22, 1), easeIn = bezier(0.65, 0, 0.35, 1);
+// easeOut: a soft start instead of the snappy expo-out
+const easeOut = bezier(0.25, 0.8, 0.25, 1), easeIn = bezier(0.65, 0, 0.35, 1);
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 const tNow = () => window.__tnow ?? performance.now() / 1000; // __tnow: test hook, frames of the text timeline
 const st = beats.map(() => ({ on: false, dir: 0, t0: 0, ot0: -1, v: [], from: [], dom: [] }));
@@ -865,7 +872,7 @@ function tickText(P) {
 
 // ========== Lenis: one RAF for scroll + scene ==========
 let revealed = false;
-const lenis = new Lenis({ autoRaf: false, lerp: reduce ? 1 : 0.09, smoothWheel: !reduce, syncTouch: false, anchors: false });
+const lenis = new Lenis({ autoRaf: false, lerp: reduce ? 1 : 0.075, smoothWheel: !reduce, syncTouch: false, anchors: false });
 
 // ========== pointer: camera parallax, hover, taps ==========
 const ray = new THREE.Raycaster();
@@ -880,7 +887,7 @@ addEventListener('pointermove', (e) => {
   const tn = performance.now(), dtm = Math.max(8, tn - pmT);
   if (pmT && tn - pmT < 200) { const vx = (e.clientX - pmX) / dtm * 1000, vy = (e.clientY - pmY) / dtm * 1000; ptrVx += (vx - ptrVx) * 0.5; ptrVy += (vy - ptrVy) * 0.5; ptrSpd = Math.hypot(ptrVx, ptrVy); }
   pmX = e.clientX; pmY = e.clientY; pmT = tn;
-  setNdc(e); U.ptr.value.copy(ndc);
+  setNdc(e); ptrRaw.copy(ndc);
   // touch moving across the letter rustles it too (rate-limited probe)
   if (e.pointerType !== 'mouse' && dragging && activeBeat() === 2 && tn - lastPaperProbe > 70 && !inFooter()) {
     lastPaperProbe = tn; const r = hitTest(); if (r && r.h.paper) Sound.paper(ptrSpd, ptrVx, ptrVy);
@@ -890,10 +897,10 @@ addEventListener('pointermove', (e) => {
   // vertical swipe began with a camera lurch toward the touch point and an ease back.
   else if (dragging) ptrT.set(THREE.MathUtils.clamp((e.clientX - dragX) / (innerWidth * 0.45), -1, 1), 0);
 }, { passive: true });
-addEventListener('pointerdown', (e) => { if (e.target.closest('a,button')) return; setNdc(e); U.ptr.value.copy(ndc); dragging = true; dragX = e.clientX; if (e.pointerType === 'mouse') ptrT.set(ndc.x, ndc.y); tap(); }, { passive: true });
+addEventListener('pointerdown', (e) => { if (e.target.closest('a,button')) return; setNdc(e); ptrRaw.copy(ndc); U.ptr.value.copy(ndc); dragging = true; dragX = e.clientX; if (e.pointerType === 'mouse') ptrT.set(ndc.x, ndc.y); tap(); }, { passive: true });
 addEventListener('pointerup', () => { dragging = false; if (coarse) ptrT.set(0, 0); }, { passive: true });
 addEventListener('pointercancel', () => { dragging = false; if (coarse) ptrT.set(0, 0); }, { passive: true });
-document.addEventListener('pointerleave', () => { ptrT.set(0, 0); U.ptr.value.set(9, 9); });
+document.addEventListener('pointerleave', () => { ptrT.set(0, 0); ptrRaw.set(9, 9); });
 function activeBeat() { return Math.round(THREE.MathUtils.clamp(P, 0, 2)); }
 function hitTest() {
   ray.setFromCamera(ndc, camera);
@@ -903,6 +910,7 @@ function hitTest() {
 }
 function tap() {
   if (inFooter()) return;
+  U.poke.value.set(ndc.x, ndc.y, 0); // every tap starts the gentle spring on the plants, pines and clouds around it
   const r = hitTest(); const g = beatGroups[activeBeat()];
   if (r) r.h.tap(r.pt);
   else if (g.userData.tapMiss) {
@@ -918,6 +926,9 @@ function inFooter() { return scrollY > sheetH() - innerHeight * 0.6; }
 // ========== loop ==========
 let forced = null; // test hook: hold the pointer at the tilt limit
 const PTR_X = 0.32, PTR_Y = 0.16; const ptrV = new THREE.Vector2();
+// the hover point the leaves lean from: pointer events only set ptrRaw, the frame eases U.ptr toward it with exp(-k dt), so the
+// lean glides instead of stepping at each event (and at low FPS)
+const ptrRaw = new THREE.Vector2(9, 9);
 let P = 0, Psm = 0, last = performance.now(), running = true, frames = 0, slowFrames = 0, built = false;
 const stage = $('#stage');
 const col = new THREE.Color();
@@ -945,7 +956,10 @@ function frame(now) {
   // gentle camera parallax from mouse or touch drag, sprung
   if (forced) ptrT.set(forced[0], forced[1]);
   // one critically damped spring: no overshoot, eases back to centre on release, nothing else pulls on it
-  if (reduce) { ptrS.set(0, 0); ptrV.set(0, 0); } else { const w = 4.2; ptrV.x += (w * w * (ptrT.x - ptrS.x) - 2 * w * ptrV.x) * dt; ptrV.y += (w * w * (ptrT.y - ptrS.y) - 2 * w * ptrV.y) * dt; ptrS.addScaledVector(ptrV, dt); }
+  // Calmer (w 3) and sub-stepped at 120 Hz, so it moves the same at 8 FPS on a phone as at 60 on a laptop: no stepping, no jitter.
+  if (reduce) { ptrS.set(0, 0); ptrV.set(0, 0); } else { const w = 3.0, n = Math.max(1, Math.ceil(dt * 120)), h = dt / n; for (let j = 0; j < n; j++) { ptrV.x += (w * w * (ptrT.x - ptrS.x) - 2 * w * ptrV.x) * h; ptrV.y += (w * w * (ptrT.y - ptrS.y) - 2 * w * ptrV.y) * h; ptrS.addScaledVector(ptrV, h); } }
+  if (ptrRaw.x > 5 || U.ptr.value.x > 5) U.ptr.value.copy(ptrRaw); else U.ptr.value.lerp(ptrRaw, 1 - Math.exp(-10 * dt));
+  U.poke.value.z += dt; U.pokeA.value = reduce ? 0 : 1; // tap spring clock (see cardVert)
   // the camera swings around the hero plane (z -4): the subject stays put, near planes move a little one way and far planes
   // a little the other. Travel is small so the framing plants and corner clouds can never reach the subject.
   camera.position.set(ptrS.x * PTR_X, ptrS.y * PTR_Y, 10);
@@ -961,8 +975,8 @@ function frame(now) {
   beatGroups[0].visible = p < 1.2; beatGroups[1].visible = p > 0.2 && p < 2.2; beatGroups[2].visible = p > 1.05;
   for (const g of beatGroups) if (g.visible && g.userData.update) g.userData.update(U.time.value, reduce ? 0 : dt);
   // pointer rustle on the hero leaves
-  rustleKick = Math.max(0, rustleKick - dt * 0.8);
-  const fgm = beatGroups[0].userData.mats?.fg; if (fgm) fgm.forEach((m, i) => (m.uniforms.uRustle.value = reduce ? 0 : 0.05 + rustleKick * 0.12));
+  rustleKick *= Math.exp(-1.6 * dt); // smooth decay, no hard stop
+  const fgm = beatGroups[0].userData.mats?.fg; if (fgm) fgm.forEach((m, i) => (m.uniforms.uRustle.value = reduce ? 0 : 0.025 + rustleKick * 0.03));
   // hover (mouse only), throttled
   if (!coarse && now - lastHover > 80 && U.ptr.value.x < 5) {
     lastHover = now; const r = hitTest(); canvas.style.cursor = r ? 'pointer' : '';
