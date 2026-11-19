@@ -875,7 +875,7 @@ function frame(now) {
   // the scene moves, the camera stays: scroll lifts everything by one beat per screen
   root.position.y = -camY(p) - (Psm - p) * 4;
   // nav tone follows the painted value behind it: dark forest and night take white, the light day sky takes ink
-  { const dark = p < 0.45 || p > 1.55; if (dark !== navDark) { navDark = dark; navEl?.classList.toggle('on-dark', dark); dispatchEvent(new Event('navtone')); } }
+  // the header stays white the whole way (Shifat: the Cost of Design header, just in white)
   // gentle camera parallax from mouse or touch drag, sprung
   if (forced) ptrT.set(forced[0], forced[1]);
   // one critically damped spring: no overshoot, eases back to centre on release, nothing else pulls on it

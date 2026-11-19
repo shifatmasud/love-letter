@@ -4,6 +4,7 @@ import { asset } from './assets.js';
 // Every scene sound is a real field recording (no synth): wind in the pines, leaves and a quiet fire at the house,
 // soft high wind with the balloon, far crickets at night. Beds crossfade slowly by scroll. UI sounds are separate.
 import { bindInk } from './ink-button.js';
+import * as UI from './ui-sound.js';
 
 const KEY = 'pines-muted';
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -146,7 +147,8 @@ if (btn) {
     kick();
   };
   btn.setAttribute('aria-pressed', String(!muted)); btn.setAttribute('aria-label', muted ? 'Sound off' : 'Sound on');
-  btn.addEventListener('click', () => { boot(); set(!muted); if (!muted) play('star', 0.35, { minGap: 0 }); });
+  // Cost of Design's toggle sounds: off plays, then the mute; on plays after the unmute
+  btn.addEventListener('click', () => { boot(); if (muted) { set(false); UI.setMuted(false); UI.S.on(); } else { UI.S.off(); set(true); UI.setMuted(true); } });
 }
 
-export const Sound = { mix, play, boot, get on() { return !!ctx && !muted; } };
+export const Sound = { mix, play, boot, preload, count: Object.keys(BEDS).length + SHOTS.length, get on() { return !!ctx && !muted; } };

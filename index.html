@@ -31,7 +31,7 @@ a{color:inherit}
 .wrap{max-width:1200px;margin:0 auto;padding:0 clamp(22px,4vw,48px)}
 
 /* ---------- the sheet: the painted scene scrolls over the dark footer (Cost of Design curtain) ---------- */
-.sheet{position:relative;z-index:1;background:#1d2430;border-radius:0 0 var(--r) var(--r);overflow:clip}
+.sheet{position:relative;z-index:1;background:#1d2430;border-radius:0 0 var(--r) var(--r);overflow:clip;clip-path:inset(0 round 0 0 var(--r) var(--r))} /* same corners as Cost of Design; clip-path also rounds the WebGL canvas layer, which overflow alone left square */
 .stage{position:sticky;top:0;height:100vh;height:100lvh;margin-bottom:-100vh;margin-bottom:-100lvh;z-index:0;overflow:hidden;background:#d9b98f}
 .stage canvas{display:block;width:100%;height:100%;touch-action:pan-y;outline:none}
 /* painted glow and film look: cheap CSS layers, no full-screen post pass */
@@ -61,11 +61,15 @@ header{position:relative;z-index:5;display:flex;align-items:center;justify-conte
 /* nav tone: white over the dark painted forest and night, ink over the light day sky. Colour only: no shadow, glow or scrim on any UI */
 .mark,.pill--sound{transition:color .45s ease}
 header.on-dark .mark,header.on-dark .pill--sound{color:#fff}
+/* 3D logo (Cost of Design): an extruded model drawn head-on, so at rest it looks flat; the SVG stays only as a fallback */
+.logo3d{width:100%;height:100%;display:block;pointer-events:none}
+.mark.is-3d svg,.foot-mark.is-3d svg{display:none}
 header.on-dark .mark:focus-visible,header.on-dark .pill--sound:focus-visible{outline-color:#fff}
 @media (max-width:620px){:root{--r:28px}header{padding:20px 0}}
 
 /* ---------- beats: Surface Tension text layout (src/styles/app.css .slot) ---------- */
-.scrim{content:"";position:fixed;left:0;right:0;bottom:0;height:46vh;z-index:1;background:linear-gradient(to top,rgba(10,16,14,.62),rgba(10,16,14,.28) 45%,rgba(10,16,14,0));pointer-events:none}
+/* the text scrim lives in the stage, so it moves and clips with the sheet's rounded bottom (a fixed scrim painted over the corners) */
+.scrim{content:"";position:absolute;left:0;right:0;bottom:0;height:46vh;z-index:1;background:linear-gradient(to top,rgba(10,16,14,.62),rgba(10,16,14,.28) 45%,rgba(10,16,14,0));pointer-events:none}
 .beat{position:relative;z-index:2;height:100vh;height:100lvh;display:flex;flex-direction:column;justify-content:flex-end;padding:0 var(--pad-x) var(--s5);color:var(--cream);pointer-events:none}
 .beat:first-of-type{margin-top:-100px}
 /* the letter holds for 0.8 screen more: room to read, then its text rolls out before the footer curtain opens */
@@ -88,7 +92,7 @@ header.on-dark .mark:focus-visible,header.on-dark .pill--sound:focus-visible{out
 /* ---------- footer: Cost of Design curtain ---------- */
 .foot-space{height:var(--fh,190px)}
 footer{position:fixed;left:0;right:0;bottom:0;z-index:0;background:#121315;color:#f5f3ef;font-size:15px;padding:40px 0 calc(48px + env(safe-area-inset-bottom,0px));contain:layout paint}
-footer .wrap{display:flex;flex-direction:column;align-items:flex-start;gap:6px;text-wrap:balance}
+footer .wrap{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
 footer a{color:inherit}
 footer .dim{color:rgba(245,243,239,.62)}
 .foot-mark{position:relative;display:block;width:30px;height:30px;margin-bottom:16px;-webkit-tap-highlight-color:transparent;touch-action:pan-y}
@@ -105,18 +109,34 @@ footer .dim{color:rgba(245,243,239,.62)}
 @media (prefers-reduced-motion:reduce){.foot-name::after{transition:none}.stage .grain{animation:none}}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 </style>
+<script>
+// One shared pointer for every 3D model. Passive listeners only store where the pointer or finger is.
+(() => {
+  const P = window.__ptr = { x: 0, y: 0, cx: -1, cy: -1, t: 0, n: 0, touch: false, down: false, seen: false, wake: null };
+  const put = (cx, cy, touch) => { P.cx = cx; P.cy = cy; P.x = cx / innerWidth - 0.5; P.y = cy / innerHeight - 0.5; P.t = performance.now(); P.touch = touch; P.seen = true; P.n++; if (P.wake) P.wake(); };
+  const up = () => { P.down = false; P.t = performance.now(); P.n++; if (P.wake) P.wake(); };
+  const o = { passive: true, capture: true };
+  addEventListener('pointermove', (e) => put(e.clientX, e.clientY, e.pointerType !== 'mouse'), o);
+  addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse') P.down = true; put(e.clientX, e.clientY, e.pointerType !== 'mouse'); }, o);
+  addEventListener('touchstart', (e) => { const t = e.touches[0]; if (t) { P.down = true; put(t.clientX, t.clientY, true); } }, o);
+  addEventListener('touchmove', (e) => { const t = e.touches[0]; if (t) put(t.clientX, t.clientY, true); }, o);
+  addEventListener('touchend', (e) => { if (!e.touches.length) up(); }, o);
+  addEventListener('touchcancel', (e) => { if (!e.touches.length) up(); }, o);
+  // a finger that lifted lets the models drift home after a short while; a mouse stays where it is
+  P.on = (now) => P.seen && !(P.touch && !P.down && now - P.t > 1500);
+})();
+</script>
 </head>
 <body>
 <div class="sheet">
-  <div class="stage" id="stage"><canvas id="gl" aria-label="A painted scene: a log house in tall pines, a red balloon above the clouds, and a torn letter under the stars" role="img"></canvas><div class="vig"></div><div class="grain"></div><div class="veil"></div></div>
+  <div class="stage" id="stage"><canvas id="gl" aria-label="A painted scene: a log house in tall pines, a red balloon above the clouds, and a torn letter under the stars" role="img"></canvas><div class="vig"></div><div class="grain"></div><div class="veil"></div><div class="scrim" aria-hidden="true"></div></div>
   <div class="wrap" style="position:relative;z-index:5">
 <header class="on-dark">
-<a class="mark" href="https://shifatmasud-framer.vercel.app/" aria-label="Shifat Masud, portfolio" draggable="false"><i><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 204 204" aria-hidden="true"><path fill="currentColor" d="M115.66 1.82L166.95 1.82A14 14 0 0 1 176.85 25.72L111.29 91.28A36 36 0 0 1 85.84 101.82L34.55 101.82A14 14 0 0 1 24.65 77.92L90.21 12.36A36 36 0 0 1 115.66 1.82ZM114.16 98.18L165.45 98.18A14 14 0 0 1 175.35 122.08L109.79 187.64A36 36 0 0 1 84.34 198.18L33.05 198.18A14 14 0 0 1 23.15 174.28L88.71 108.72A36 36 0 0 1 114.16 98.18Z"/></svg></i></a>
+<a class="mark" href="https://shifatmasud-framer.vercel.app/" aria-label="Shifat Masud, portfolio" draggable="false"><i><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 204 204" aria-hidden="true"><path fill="#ffffff" d="M115.66 1.82L166.95 1.82A14 14 0 0 1 176.85 25.72L111.29 91.28A36 36 0 0 1 85.84 101.82L34.55 101.82A14 14 0 0 1 24.65 77.92L90.21 12.36A36 36 0 0 1 115.66 1.82ZM114.16 98.18L165.45 98.18A14 14 0 0 1 175.35 122.08L109.79 187.64A36 36 0 0 1 84.34 198.18L33.05 198.18A14 14 0 0 1 23.15 174.28L88.71 108.72A36 36 0 0 1 114.16 98.18Z"/></svg></i></a>
 <button class="pill pill--sound" id="sound" type="button" aria-label="Sound on" aria-pressed="true"><span class="sroll ink-par"><span class="ir-a"><canvas class="snd-wave" aria-hidden="true"></canvas></span><span class="ir-b"><canvas class="snd-wave" aria-hidden="true"></canvas></span></span><span class="ink" aria-hidden="true"><span class="sroll ink-par"><span class="ir-a"><canvas class="snd-wave" data-inv aria-hidden="true"></canvas></span><span class="ir-b"><canvas class="snd-wave" data-inv aria-hidden="true"></canvas></span></span></span></button>
 </header>
   </div>
   <main>
-    <div class="scrim" aria-hidden="true"></div>
     <section class="beat" id="home" data-beat="0">
       <div class="slot__beat">
         <p class="slot__eyebrow"><span class="slot__line"><span class="slot__in">01 &mdash; The house</span></span></p>
@@ -142,7 +162,9 @@ footer .dim{color:rgba(245,243,239,.62)}
 </div>
 <div class="foot-space" aria-hidden="true"></div>
 <footer><div class="wrap"><a class="foot-mark" href="https://shifatmasud-framer.vercel.app/" aria-label="Shifat Masud, portfolio" draggable="false"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 204 204" aria-hidden="true"><path fill="#f5f3ef" d="M115.66 1.82L166.95 1.82A14 14 0 0 1 176.85 25.72L111.29 91.28A36 36 0 0 1 85.84 101.82L34.55 101.82A14 14 0 0 1 24.65 77.92L90.21 12.36A36 36 0 0 1 115.66 1.82ZM114.16 98.18L165.45 98.18A14 14 0 0 1 175.35 122.08L109.79 187.64A36 36 0 0 1 84.34 198.18L33.05 198.18A14 14 0 0 1 23.15 174.28L88.71 108.72A36 36 0 0 1 114.16 98.18Z"/></svg></a><span>Love Letter. Painted and built by <a class="foot-name" href="https://shifatmasud-framer.vercel.app/" aria-label="Shifat Masud, portfolio" draggable="false">Shifat Masud</a></span><span class="dim">November 2026</span></div></footer>
+<script>(function(){document.querySelectorAll(".foot-name").forEach(function(a){var t;a.addEventListener("pointerdown",function(e){if(e.pointerType==="mouse")return;clearTimeout(t);a.classList.add("is-tap");t=setTimeout(function(){a.classList.remove("is-tap")},1000)},{passive:true})})})();</script>
 <script>(function(){var f=document.querySelector("footer"),s=document.querySelector(".foot-space");function u(){s.style.height=f.offsetHeight+"px"}u();if(window.ResizeObserver)new ResizeObserver(u).observe(f);else addEventListener("resize",u)})();</script>
 <script type="module" src="/js/main.js"></script>
+<script type="module" src="/js/logo3d.js"></script>
 </body>
 </html>
