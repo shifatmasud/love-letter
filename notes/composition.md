@@ -30,3 +30,12 @@ Short rules, from real sources, that every beat follows.
 3. **Thirds.** The subject sits on the upper-middle third line, above the pinned text band at the bottom.
 4. **Things leave by moving.** Nothing turns off or fades out to change the scene. Far planes leave by their scroll speed, or pass behind cloud or haze.
 5. **Ink fades with depth.** Ink is strongest on the hero, thinner on mid, none on back.
+
+## Next round: foreground pine (Shifat, Nov 19)
+
+His words: "No dark hanging branches. Add pine tree on fg, compose with real tree."
+
+- **No dark hanging boughs at all.** Not in the corners, not at the sides, not as plane 6 frame pieces. The boughs round was rolled back (kept in branch round-boughs-grade) and must not come back.
+- **One real foreground pine instead.** A full tree with trunk and branches, in the same painted pine look as the midground pines nearest the house. Same greens, same colour steps, same ink.
+- **Close to the camera.** It sits in plane 5/6, near one side, so it reads as a real tree standing near you.
+- **Composed like a real photo or film frame.** Start from real forest photography references and copy how they place a near tree against the far scene. Keep the clear window: it never covers the house, balloon or letter, at rest or at full tilt, on phone or desktop.
