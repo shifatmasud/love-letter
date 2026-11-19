@@ -937,5 +937,5 @@ requestAnimationFrame(frame);
   await buildLetter();
   resize();
   renderer.compile(scene, camera);
-  window.__pines = { ready: true, THREE, renderer, scene, camera, lenis, LOW, GPU, forcePtr: (x, y) => { forced = x === null ? null : [x, y]; } };
+  window.__pines = { ready: true, THREE, renderer, scene, camera, lenis, root, LOW, GPU, forcePtr: (x, y) => { forced = x === null ? null : [x, y]; } };
 })().catch((e) => { console.error(e); stage.classList.add('ready'); built = true; });
