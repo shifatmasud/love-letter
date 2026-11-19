@@ -10,10 +10,13 @@ const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let muted = false;
 try { muted = localStorage.getItem(KEY) === '1'; } catch (_) {}
 
-const BEDS = { pines: 0.5, leaves: 0.16, fire: 0.1, air: 0.42, night: 0.2 };
-const SHOTS = ['creak', 'crackle', 'cloth', 'paper', 'rustle', 'gust', 'star'];
+// beds: every file is low-passed at 2.4 kHz (6-pole) and levelled to -23 LUFS, then played low: about -36 to -41 LUFS out
+const BEDS = { pines: 0.22, leaves: 0.08, fire: 0.06, air: 0.22, night: 0.16 };
+// scene taps (house, balloon, letter, plants, sky): levelled to a -1.3 dBFS peak with short fades; they play loud, on their own bus
+const TAPS = new Set(['creak', 'crackle', 'cloth', 'paper', 'rustle', 'gust']);
+const SHOTS = ['creak', 'crackle', 'cloth', 'paper', 'rustle', 'gust'];
 const MASTER = 0.8;
-let ctx = null, out = null, started = false, ext = 'webm';
+let ctx = null, out = null, bedBus = null, tapBus = null, started = false, ext = 'webm';
 const buf = {}, bed = {};
 let lastP = 0;
 const lastShot = {};
@@ -34,7 +37,7 @@ async function load(name) {
 }
 function startBed(name) {
   if (!buf[name] || bed[name]) return;
-  const g = ctx.createGain(); g.gain.value = 0; g.connect(out);
+  const g = ctx.createGain(); g.gain.value = 0; g.connect(bedBus);
   const s = ctx.createBufferSource(); s.buffer = buf[name]; s.loop = true;
   // start each loop at a random point so the beds never line up the same way
   s.connect(g); s.start(0, Math.random() * buf[name].duration);
@@ -51,6 +54,14 @@ async function boot() {
   comp.threshold.value = -20; comp.knee.value = 18; comp.ratio.value = 2.5; comp.attack.value = 0.02; comp.release.value = 0.3;
   const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 9000;
   out.connect(lp); lp.connect(comp); comp.connect(ctx.destination);
+  // ambience: one more steep low-pass (no hiss, no sharp crickets) into the master
+  bedBus = ctx.createBiquadFilter(); bedBus.type = 'lowpass'; bedBus.frequency.value = 2500; bedBus.Q.value = 0.5;
+  const bedLp2 = ctx.createBiquadFilter(); bedLp2.type = 'lowpass'; bedLp2.frequency.value = 2500; bedLp2.Q.value = 0.5;
+  bedBus.connect(bedLp2); bedLp2.connect(out);
+  // scene taps: loud and clear, past the master glue, with a brick-wall limiter at -1 dBFS so overlaps never clip
+  tapBus = ctx.createGain(); tapBus.gain.value = muted ? 0 : 1;
+  const lim = ctx.createDynamicsCompressor(); lim.threshold.value = -1.5; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.1;
+  tapBus.connect(lim); lim.connect(ctx.destination);
   if (ctx.state === 'suspended') ctx.resume();
   const near = lastP < 0.8 ? ['pines', 'leaves', 'fire'] : lastP < 1.6 ? ['air'] : ['night'];
   const order = [...near, ...Object.keys(BEDS).filter((b) => !near.includes(b))];
@@ -81,7 +92,7 @@ function play(name, vol = 0.6, { rate = 1, pan = 0, minGap = 0.12 } = {}) {
   const g = ctx.createGain(); g.gain.value = vol;
   let node = g;
   if (ctx.createStereoPanner) { const pn = ctx.createStereoPanner(); pn.pan.value = Math.max(-0.8, Math.min(0.8, pan)); g.connect(pn); node = pn; }
-  s.connect(g); node.connect(out); s.start();
+  s.connect(g); node.connect(TAPS.has(name) ? tapBus : out); s.start();
 }
 
 // first gesture anywhere starts the sound
@@ -131,7 +142,7 @@ if (btn) {
     muted = m;
     try { m ? localStorage.setItem(KEY, '1') : localStorage.removeItem(KEY); } catch (_) {}
     btn.setAttribute('aria-pressed', String(!m)); btn.setAttribute('aria-label', m ? 'Sound off' : 'Sound on');
-    if (ctx && out) { const t = ctx.currentTime; out.gain.cancelScheduledValues(t); out.gain.setValueAtTime(out.gain.value, t); out.gain.linearRampToValueAtTime(m ? 0 : MASTER, t + (m ? 0.32 : 0.05)); if (!m && ctx.state === 'suspended') ctx.resume(); }
+    if (ctx && out) { const t = ctx.currentTime; out.gain.cancelScheduledValues(t); out.gain.setValueAtTime(out.gain.value, t); out.gain.linearRampToValueAtTime(m ? 0 : MASTER, t + (m ? 0.32 : 0.05)); tapBus.gain.cancelScheduledValues(t); tapBus.gain.setValueAtTime(tapBus.gain.value, t); tapBus.gain.linearRampToValueAtTime(m ? 0 : 1, t + (m ? 0.32 : 0.05)); if (!m && ctx.state === 'suspended') ctx.resume(); }
     kick();
   };
   btn.setAttribute('aria-pressed', String(!muted)); btn.setAttribute('aria-label', muted ? 'Sound off' : 'Sound on');
