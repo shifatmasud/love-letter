@@ -402,13 +402,29 @@ async function build() {
     let a = at(5.2); const bot = -a.H / 2;
     const sx = (f) => f * a.Wd / 2; const mk2 = THREE.MathUtils.clamp(camera.aspect / 1.6, 0.55, 1);
     const ms = (t) => 2.0 * mk2; // mass width in world units at z 5.2
-    const [m1, m2] = masses;
-    m1.setMatrixAt(0, mat(sx(-0.9), bot - 0.32, 5.2, ms() * 1.5, ms() * 1.5, 1)); tint(m1, 0, 0.62);
-    m2.setMatrixAt(0, mat(sx(0.92), bot - 0.3, 5.0, -ms() * 1.3, ms() * 1.3, 1)); tint(m2, 0, 0.66);
-    m1.setMatrixAt(1, mat(sx(0.55), bot - 0.55, 5.6, -ms(), ms(), 1)); tint(m1, 1, 0.56);
-    const b3 = at(2.4); m2.setMatrixAt(1, mat(-b3.Wd * 0.47, -b3.H / 2 - 0.1, 2.4, ms() * 1.2, ms() * 1.2, 1)); tint(m2, 1, 0.82, 0.05);
-    m2.setMatrixAt(2, mat(b3.Wd * 0.5, -b3.H / 2 - 0.05, 2.2, -ms() * 1.05, ms() * 1.05, 1)); tint(m2, 2, 0.85, 0.06);
-    m1.setMatrixAt(2, mat(-b3.Wd * 0.12, -b3.H / 2 - 0.9, 2.6, ms() * 0.8, ms() * 0.8, 1)); tint(m1, 2, 0.8, 0.05);
+    // Monstera are placed in screen terms (NDC of the resting frame), blended from a phone framing to a desktop framing.
+    // Root cause of "monstera barely show on phone": they were sized and placed by the frame WIDTH, so on a narrow
+    // screen they shrank and slid past the edges, and the near grass rows (closer to the camera) covered the rest.
+    // Now each clump keeps its share of the frame HEIGHT, anchored to the edge, so phone and desktop show the same picture.
+    const [m1, m2] = masses; const fk = THREE.MathUtils.clamp((camera.aspect - 0.46) / (1.6 - 0.46), 0, 1);
+    // [mesh, i, z, phone (cx, bottom, h), desk (cx, bottom, h), flip, tone, haze]  cx/bottom in NDC, h = NDC height
+    const MON = [
+      [m1, 0, 5.2, [-1.2, -1.14, 0.95], [-0.9, -1.18, 1.36], 1, 0.62, 0],
+      [m2, 0, 5.0, [1.18, -1.12, 0.85], [0.885, -1.12, 0.98], -1, 0.66, 0],
+      [m1, 1, 5.6, [0.62, -1.3, 0.44], [0.6, -1.43, 0.99], -1, 0.56, 0],
+      [m2, 1, 2.4, [-0.98, -1.02, 0.4], [-0.94, -1.04, 0.6], 1, 0.82, 0.05],
+      [m2, 2, 2.2, [1.0, -1.0, 0.34], [0.975, -0.99, 0.51], -1, 0.85, 0.06],
+      [m1, 2, 2.6, [-0.32, -1.34, 0.32], [-0.245, -1.36, 0.47], 1, 0.8, 0.05],
+    ];
+    const rects = [];
+    for (const [m, i, z, ph, dk, flip, tone, hz] of MON) {
+      const [cx, by, h] = ph.map((v, k) => THREE.MathUtils.lerp(v, dk[k], fk));
+      const q = at(z), ta = (m === m1 ? tMass1 : tMass2).userData.aspect;
+      const hw = h * q.H / 2, w = hw / ta; // world height and width
+      m.setMatrixAt(i, mat(cx * q.Wd / 2, by * q.H / 2, z, w * flip, w, 1)); tint(m, i, tone, hz);
+      const wN = w / (q.Wd / 2); rects.push({ x0: cx - wN / 2, x1: cx + wN / 2, y0: by, y1: by + h, z });
+    }
+    B0.userData.frameRects = rects;
     a = at(6.5);
     const bk = THREE.MathUtils.clamp(camera.aspect / 1.6, 0.7, 1); // the boughs sit behind the nav, so white marks read on dark needles
     bough.setMatrixAt(0, mat(-a.Wd * 0.52, a.H / 2 + 0.02, 6.5, 0.8 * bk, -0.8 * bk, 1, 0, 0, 0.35)); tint(bough, 0, 0.9);
@@ -440,6 +456,8 @@ async function build() {
       ray.setFromCamera(nd, camera); if (!ray.ray.intersectPlane(pl, hit)) { m.setMatrixAt(j, mat(0, -50, 0, 0.001, 0.001, 1)); continue; }
       B0.worldToLocal(hit); const x = hit.x, z = hit.z; const d = 10 - z;
       let h = THREE.MathUtils.lerp(0.7, 1.3, gr()) * THREE.MathUtils.clamp(d / 9, 0.5, 1.25);
+      // a clump nearer than a frame monstera, inside its inner box, would hide it (the phone bug): leave that spot to the leaf
+      if ((B0.userData.frameRects || []).some((r) => z > r.z - 0.2 && nd.x > r.x0 - 0.05 && nd.x < r.x1 + 0.05 && nd.y < r.y1)) { m.setMatrixAt(j, mat(0, -50, 0, 0.001, 0.001, 1)); continue; }
       const inX = x > hb.min.x - 0.5 && x < hb.max.x + 0.5;
       if (inX && z > hb.min.z - 0.3 && z < hb.max.z + 0.3) { h *= 0.18; }
       else if (inX && z >= hb.max.z) { const dh = 10 - hb.max.z; const lim = (camY - GROUND) * (1 - d / dh) - 0.05; h = Math.min(h, Math.max(0.12, lim)); }
