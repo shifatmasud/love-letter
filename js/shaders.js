@@ -145,20 +145,23 @@ void main(){
   float k1 = smoothstep(0.0, 1.0, uP), k2 = smoothstep(1.0, 2.0, uP);
   // day -> dusk -> night as three stops, so the middle is a warm sunset and never a grey mix of gold and navy
   float kd = smoothstep(0.0, 0.5, k2), kn = smoothstep(0.45, 1.0, k2);
-  vec3 top = mix(mix(mix(vec3(0.40, 0.60, 0.86), vec3(0.47, 0.56, 0.84), k1), vec3(0.24, 0.29, 0.58), kd), vec3(0.04, 0.06, 0.16), kn);
+  vec3 top = mix(mix(mix(vec3(0.30, 0.47, 0.76), vec3(0.47, 0.56, 0.84), k1), vec3(0.24, 0.29, 0.58), kd), vec3(0.04, 0.06, 0.16), kn);
   vec3 hor = mix(mix(mix(vec3(0.90, 0.93, 0.94), vec3(0.98, 0.86, 0.78), k1), vec3(1.0, 0.70, 0.50), kd), vec3(0.17, 0.20, 0.40), kn);
   vec3 col = mix(hor, top, pow(smoothstep(0.05, 1.0, y), 0.8));
   // sun: soft disc + wide warm bloom painted into the sky (no post bloom)
-  vec2 sp0 = vec2(0.66, mix(mix(0.66, 0.42, k1), 0.06, smoothstep(0.0, 0.8, k2))); // the sun sets below the cloud sea
+  vec2 sp0 = vec2(0.66, mix(mix(0.66, 0.42, k1), -0.04, smoothstep(0.0, 0.55, k2))); // the sun sets below the cloud sea before dusk is full
   vec2 sd = (vUv - sp0) * vec2(uAspect, 1.0);
   float r = length(sd);
-  float sunOn = 1.0 - smoothstep(0.5, 0.85, k2);
-  col = mix(col, vec3(1.0, 0.97, 0.88), smoothstep(0.62, 0.0, r) * 0.55 * sunOn);
-  col = mix(col, mix(vec3(1.0, 0.99, 0.93), vec3(1.0, 0.80, 0.55), kd), smoothstep(0.125, 0.115, r) * 0.92 * sunOn);
+  float sunOn = 1.0 - smoothstep(0.25, 0.55, k2);
+  col = mix(col, vec3(1.0, 0.97, 0.88), smoothstep(0.62, 0.0, r) * 0.55 * sunOn * (1.0 - smoothstep(0.82, 0.97, y) * 0.8));
+  col = mix(col, mix(vec3(1.0, 0.99, 0.93), vec3(1.0, 0.80, 0.55), kd), smoothstep(mix(0.125, 0.14, kd), mix(0.115, 0.09, kd), r) * mix(0.92, 0.6, kd) * sunOn); // softer, dimmer disc as it sinks into haze
   // drifting painted wisps (day only)
   vec2 q = vec2(vUv.x * uAspect * 1.6 + uTime * 0.004, vUv.y * 4.0);
-  float w = smoothstep(0.12, 0.42, sin(q.x * 2.1 + sin(q.y * 1.7) * 1.3) * 0.5 + 0.5 + brush * 1.6 - abs(y - 0.74) * 3.2);
+  float w = smoothstep(0.12, 0.42, sin(q.x * 2.1 + sin(q.y * 1.7) * 1.3) * 0.5 + 0.5 + brush * 1.6 - abs(y - 0.64) * 3.2);
   col = mix(col, mix(vec3(1.0, 0.98, 0.95), vec3(1.0, 0.88, 0.80), k1), w * 0.35 * sunOn);
+  // painted zenith: the top of the frame grades to a deeper blue in day and dusk, so the white nav reads on the scene itself
+  float zen = smoothstep(0.80, 0.97, y) * (1.0 - kn) * (1.0 - k1 * (1.0 - kd)); // not in the bright balloon sky, where the nav turns ink
+  col = mix(col, mix(vec3(0.20, 0.33, 0.60), vec3(0.20, 0.22, 0.46), kd), zen * 0.85);
   col += brush * mix(0.05, 0.03, k2);
   if (uStars > 0.001) {
     vec2 g = vec2(vUv.x * uAspect, vUv.y) * 34.0;

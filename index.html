@@ -58,6 +58,10 @@ header{position:relative;z-index:5;display:flex;align-items:center;justify-conte
 .pill--sound .sroll .ir-b{transform:translate3d(0,100%,0)}
 .pill--sound .ink{position:absolute;inset:0;z-index:2;pointer-events:none;visibility:hidden;clip-path:circle(0px at 0px 0px);display:flex;align-items:center;justify-content:center;background:currentColor;border-radius:inherit}
 .snd-wave{width:22px;height:14px;display:block}
+/* nav tone: white over the dark painted forest and night, ink over the light day sky. Colour only: no shadow, glow or scrim on any UI */
+.mark,.pill--sound{transition:color .45s ease}
+header.on-dark .mark,header.on-dark .pill--sound{color:#fff}
+header.on-dark .mark:focus-visible,header.on-dark .pill--sound:focus-visible{outline-color:#fff}
 @media (max-width:620px){:root{--r:28px}header{padding:20px 0}}
 
 /* ---------- beats: Surface Tension text layout (src/styles/app.css .slot) ---------- */
@@ -104,8 +108,8 @@ footer .dim{color:rgba(245,243,239,.62)}
 <div class="sheet">
   <div class="stage" id="stage"><canvas id="gl" aria-label="A painted scene: a log house in tall pines, a red balloon above the clouds, and a torn letter under the stars" role="img"></canvas><div class="vig"></div><div class="grain"></div><div class="veil"></div></div>
   <div class="wrap" style="position:relative;z-index:5">
-<header>
-<a class="mark" href="https://shifatmasud-framer.vercel.app/" aria-label="Shifat Masud, portfolio" draggable="false"><i><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 204 204" aria-hidden="true"><path fill="#121315" d="M115.66 1.82L166.95 1.82A14 14 0 0 1 176.85 25.72L111.29 91.28A36 36 0 0 1 85.84 101.82L34.55 101.82A14 14 0 0 1 24.65 77.92L90.21 12.36A36 36 0 0 1 115.66 1.82ZM114.16 98.18L165.45 98.18A14 14 0 0 1 175.35 122.08L109.79 187.64A36 36 0 0 1 84.34 198.18L33.05 198.18A14 14 0 0 1 23.15 174.28L88.71 108.72A36 36 0 0 1 114.16 98.18Z"/></svg></i></a>
+<header class="on-dark">
+<a class="mark" href="https://shifatmasud-framer.vercel.app/" aria-label="Shifat Masud, portfolio" draggable="false"><i><svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 204 204" aria-hidden="true"><path fill="currentColor" d="M115.66 1.82L166.95 1.82A14 14 0 0 1 176.85 25.72L111.29 91.28A36 36 0 0 1 85.84 101.82L34.55 101.82A14 14 0 0 1 24.65 77.92L90.21 12.36A36 36 0 0 1 115.66 1.82ZM114.16 98.18L165.45 98.18A14 14 0 0 1 175.35 122.08L109.79 187.64A36 36 0 0 1 84.34 198.18L33.05 198.18A14 14 0 0 1 23.15 174.28L88.71 108.72A36 36 0 0 1 114.16 98.18Z"/></svg></i></a>
 <button class="pill pill--sound" id="sound" type="button" aria-label="Sound on" aria-pressed="true"><span class="sroll ink-par"><span class="ir-a"><canvas class="snd-wave" aria-hidden="true"></canvas></span><span class="ir-b"><canvas class="snd-wave" aria-hidden="true"></canvas></span></span><span class="ink" aria-hidden="true"><span class="sroll ink-par"><span class="ir-a"><canvas class="snd-wave" data-inv aria-hidden="true"></canvas></span><span class="ir-b"><canvas class="snd-wave" data-inv aria-hidden="true"></canvas></span></span></span></button>
 </header>
   </div>

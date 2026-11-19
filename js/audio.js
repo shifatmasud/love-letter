@@ -1,3 +1,4 @@
+import { asset } from './assets.js';
 // Ambient sound for Love Letter.
 // Real CC0 recordings (see SOUNDS.md). Nothing plays before the first tap or click.
 // Three beds crossfade by scroll: forest (house), air (balloon), night + pad (letter).
@@ -23,7 +24,7 @@ function pickExt() {
 async function load(name) {
   for (const e of [ext, 'mp3']) {
     try {
-      const r = await fetch(`/snd/${name}.${e}`);
+      const r = await fetch(asset(`/snd/${name}.${e}`));
       const ab = await r.arrayBuffer();
       return await ctx.decodeAudioData(ab);
     } catch (_) { /* try the mp3 copy */ }
@@ -110,7 +111,8 @@ if (btn) {
     if (!reduce) phase += dt * 3.2;
     for (const w of waves) {
       const g = w.g; g.clearRect(0, 0, W, H); g.lineWidth = 1.4; g.lineCap = 'round'; g.lineJoin = 'round';
-      g.strokeStyle = w.inv ? '#fafafa' : '#121315';
+      const dark = btn.parentElement && btn.parentElement.classList.contains('on-dark'); // white wave over the dark scene
+      g.strokeStyle = (w.inv !== dark) ? '#fafafa' : '#121315';
       g.beginPath();
       for (let x = 1; x <= W - 1; x += 0.5) { const env = Math.sin((Math.PI * (x - 1)) / (W - 2)); const y = H / 2 + Math.sin(x * 0.62 - phase) * 3 * amp * env; x === 1 ? g.moveTo(x, y) : g.lineTo(x, y); }
       g.stroke();
@@ -120,6 +122,7 @@ if (btn) {
   };
   const kick = () => { if (!raf) { lastT = performance.now(); raf = requestAnimationFrame(draw); } };
   document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });
+  addEventListener('navtone', () => { lastT = performance.now(); draw(lastT); });
   kick();
   bindInk(btn, 'sound');
   const set = (m) => {

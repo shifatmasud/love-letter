@@ -236,6 +236,7 @@ Image.fromarray((sm * 255).astype(np.uint8), 'L').save(f'{T}/puff.png')
 W, H = 64, 256
 yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
 sh = np.sin(xx / (W - 1) * math.pi) ** 2 * np.clip(1 - yy / H, 0, 1) ** 0.8
+sh = sh * np.clip(np.linspace(0, 1, sh.shape[0]) / 0.35, 0, 1)[:, None]  # fade the top: the shafts never brighten the sky behind the nav
 Image.fromarray((sh * 255).astype(np.uint8), 'L').save(f'{T}/shaft.png')
 # film grain tile
 gr = (rng.normal(128, 38, (160, 160))).clip(0, 255).astype(np.uint8)

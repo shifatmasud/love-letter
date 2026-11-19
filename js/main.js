@@ -7,6 +7,7 @@ import Lenis from 'lenis';
 import { animate } from 'motion';
 import * as S from './shaders.js';
 import { Sound } from './audio.js';
+import { asset } from './assets.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const qs = new URLSearchParams(location.search);
@@ -42,7 +43,10 @@ renderer.setClearColor(0xa9c6e4, 1);
 renderer.sortObjects = true;
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 400);
+// near 2.5 / far 130: the nearest card (the hanging boughs) is 3.4 units away and the farthest painting 105. The old
+// near plane of 0.1 (far 400) put almost all depth precision in front of the lens, so on phones with a 16-bit depth
+// buffer the house logs, roof and ink shells fought. Precision at the house is now about 40 times finer.
+const camera = new THREE.PerspectiveCamera(40, 1, 2.5, 130);
 camera.position.set(0, 0, 10);
 const root = new THREE.Group(); // everything that scrolls
 scene.add(root);
@@ -67,6 +71,7 @@ const TEX_SCALE = LOW ? 0.5 : 1;
 const loaded = {};
 async function tex(name, { scale = TEX_SCALE, repeat = false, file = `/tex/${name}.webp` } = {}) {
   if (loaded[name]) return loaded[name];
+  file = asset(file); // versioned URL: tex/ is cached for a year, so a changed painting needs a new URL
   let t;
   try {
     const blob = await (await fetch(file)).blob();
@@ -167,57 +172,62 @@ scene.add(sky);
 // ========== layout state that depends on the viewport ==========
 const layoutFns = [];
 const onLayout = (f) => layoutFns.push(f);
-// ===== depth planes (notes/composition.md) =====
-// every painted card belongs to a plane with a fixed scroll speed s (share of a screen per beat, hero = 1)
-// and an anchor beat a where it sits at its framed spot. It leaves the frame only by moving, never by fading.
-const PLANE_S = { back: 0.45, far: 0.6, mid: 0.8, hero: 1, near: 1.3, frame: 1.5 };
-const planes = [];
-function plane(m, kind, a) { m.userData.s = PLANE_S[kind] ?? kind; m.userData.a = a; if (m.userData.y0 === undefined) m.userData.y0 = m.position.y; planes.push(m); return m; }
-// forest planes must be fully below the frame by p = 0.95 on every screen shape: raise their speed if the card is tall
-onLayout(() => {
-  for (const m of planes) {
-    if (!m.userData.exit) continue; const d = 10 - m.position.z, H = vh(d);
-    if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
-    const top = m.userData.y0 + m.geometry.boundingBox.max.y * Math.abs(m.scale.y);
-    m.userData.s = Math.max(m.userData.sBase, (top + H * 0.55) / (0.95 * H));
-  }
-});
-function updatePlanes(p) {
-  for (const m of planes) { const d = 10 - m.position.z; m.position.y = m.userData.y0 + (p - m.userData.a) * (BEAT - m.userData.s * vh(d)); }
-}
+// ===== one physical camera (notes/composition.md) =====
+// Nothing has its own scroll speed. Every card and model stands still in the world and the camera cranes up
+// and tilts up a little. Screen speed then falls with distance by itself: the farther, the slower, always.
+const CAM_Y = [0, 46, 80], CAM_TH = [0, 0.2, 0.2];
+const ease = (f) => 0.35 * f + 0.65 * f * f * (3 - 2 * f); // calm at each beat, never a full stop between them
+function camY(p) { const i = Math.min(1, Math.floor(p)), f = THREE.MathUtils.clamp(p - i, 0, 1); return THREE.MathUtils.lerp(CAM_Y[i], CAM_Y[i + 1], ease(f)); }
+function camTh(p) { const i = Math.min(1, Math.floor(p)), f = THREE.MathUtils.clamp(p - i, 0, 1); return THREE.MathUtils.lerp(CAM_TH[i], CAM_TH[i + 1], ease(f)); }
+// the frame centre at distance d from the camera, in world height, when the camera rests at beat a
+// phones: the text band takes the lower third, so the subject gets smaller, never moved
+const subjK = () => (camera.aspect < 0.62 ? 0.8 : 1);
+const viewY = (a, d) => camY(a) + Math.tan(camTh(a)) * d;
 // cards placed in screen terms at their anchor beat: fx, fy in -1..1 of the half frame, sh = height as a share of the frame
 const placed = [];
-function place(m, z, fx, fy, sh, a, kind) { m.position.z = z; m.userData.place = { fx, fy, sh, a, flip: m.userData.flip ?? 1 }; placed.push(m); return plane(m, kind, a); }
+function place(m, z, fx, fy, sh, a) { m.position.z = z; m.userData.place = { fx, fy, sh, a, flip: m.userData.flip ?? 1 }; placed.push(m); return m; }
 onLayout(() => {
   for (const m of placed) {
-    const { fx, fy, sh, a, flip } = m.userData.place; const H = vh(10 - m.position.z), Wd = H * camera.aspect;
-    m.scale.set(sh * H * flip, sh * H, 1); m.position.x = fx * Wd / 2; m.userData.x = m.position.x; m.userData.y0 = a * BEAT + fy * H / 2;
+    const { fx, fy, sh, a, flip } = m.userData.place; const d = 10 - m.position.z, H = vh(d), Wd = H * camera.aspect;
+    m.scale.set(sh * H * flip, sh * H, 1); m.position.x = fx * Wd / 2; m.userData.x = m.position.x; m.position.y = viewY(a, d) + fy * H / 2;
   }
 });
+// subjects: each one's own centre sits on the frame centre at its beat
+const subjects = [];
+const BOX = new THREE.Box3(), CEN = new THREE.Vector3();
+function centre(obj, a, apply) { subjects.push({ obj, a, apply }); }
+function layoutSubjects() {
+  for (const { obj, a, apply } of subjects) {
+    obj.updateWorldMatrix(true, true); BOX.makeEmpty();
+    obj.traverse((o) => { if (o.isMesh && o.visible && o.geometry) { o.geometry.computeBoundingBox(); BOX.union(o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld)); } });
+    BOX.getCenter(CEN); CEN.y -= root.position.y; // centre in root space
+    apply(-CEN.x, viewY(a, 10 - CEN.z) - CEN.y);
+  }
+}
 
 async function build() {
-  const [tSky, tFar, tMid, tPine, tGround, tWood, tRoof, tEnd, tStone, tWin, tDoor, tMon, tPalm, tFern, tGrass, tBough] = await Promise.all([
+  const [tSky, tFar, tMid, tPine, tGround, tWood, tRoof, tEnd, tStone, tWin, tDoor, tMass1, tMass2, tLong, tBough] = await Promise.all([
     tex('sky', { scale: 1 }), tex('farpines'), tex('midpines'), tex('tallpine', { scale: 1 }), tex('ground'), tex('logwood', { repeat: true }), tex('roof', { repeat: true }),
     tex('logend', { scale: 1 }), tex('stone', { repeat: true, scale: 1 }), tex('window', { scale: 1 }), tex('door', { scale: 1 }),
-    tex('monstera'), tex('fanpalm'), tex('fern'), tex('grass', { scale: 1 }), tex('bough'),
+    tex('mass1'), tex('mass2'), tex('longgrass', { scale: 1 }), tex('bough'),
   ]);
   skyMat.uniforms.uMap.value = tSky; skyMat.uniforms.uTexAspect.value = 1 / tSky.userData.aspect;
-  const glowT = await new THREE.TextureLoader().loadAsync('/tex/glow.png');
-  const puffT = await new THREE.TextureLoader().loadAsync('/tex/puff.png');
-  const shaftT = await new THREE.TextureLoader().loadAsync('/tex/shaft.png');
+  const glowT = await new THREE.TextureLoader().loadAsync(asset('/tex/glow.png'));
+  const puffT = await new THREE.TextureLoader().loadAsync(asset('/tex/puff.png'));
+  const shaftT = await new THREE.TextureLoader().loadAsync(asset('/tex/shaft.png'));
   const B0 = beatGroups[0];
 
   // ----- far painted layers (2D cards in depth) -----
   const card = (t, w, o) => { const g = new THREE.PlaneGeometry(w, w * t.userData.aspect); g.translate(0, (w * t.userData.aspect) / 2, 0); return new THREE.Mesh(g, cardMat(t, o)); };
-  const far = card(tFar, 190, { haze: 0.28, fadeBot: 0.0 }); far.position.set(0, -5, -95); far.renderOrder = -20; root.add(far);
-  const mist1 = new THREE.Mesh(new THREE.PlaneGeometry(240, 22), new THREE.ShaderMaterial({ uniforms: { uHaze: U.haze, uOpacity: { value: 0.75 }, uTime: U.time }, vertexShader: S.plainVert, fragmentShader: S.mistFrag, transparent: true, depthWrite: false }));
-  mist1.position.set(0, 0, -80); mist1.renderOrder = -19; root.add(mist1);
-  const mid = card(tMid, 120, { haze: 0.14 }); mid.position.set(6, -4.5, -55); mid.renderOrder = -18; root.add(mid);
-  const mid2 = card(tMid, 110, { haze: 0.32 }); mid2.scale.x = -1; mid2.position.set(-14, -6, -68); mid2.renderOrder = -18.5; root.add(mid2);
-  // the forest leaves with the crane drop, so its painted planes keep the same order but run faster: back 1.3, far 1.5 (3D pines ~1.6+, house ~2.8)
-  for (const [m, sp] of [[far, 1.3], [mist1, 1.3], [mid, 1.5], [mid2, 1.45]]) { plane(m, sp, 0); m.userData.exit = true; m.userData.sBase = sp; }
+  // painted ridges at a believable size: mirrored tiles side by side, so wide screens are covered without blowing the cards up
+  const tiles = (t, w, n, o, x0, y, z, ro, flip0 = 1) => { const out = []; for (let i = 0; i < n; i++) { const m = card(t, w, o); const k = i - (n - 1) / 2; m.scale.x = (i % 2 ? -1 : 1) * flip0; m.position.set(x0 + k * w, y, z); m.renderOrder = ro; B0.add(m); out.push(m); } return out; };
+  const farT = tiles(tFar, 92, 3, { haze: 0.3, fadeBot: 0.0 }, 0, -3, -95, -20); const far = farT[1]; far.name = 'L1 back ridge';
+  const mist1 = new THREE.Mesh(new THREE.PlaneGeometry(260, 16), new THREE.ShaderMaterial({ uniforms: { uHaze: U.haze, uOpacity: { value: 0.7 }, uTime: U.time }, vertexShader: S.plainVert, fragmentShader: S.mistFrag, transparent: true, depthWrite: false }));
+  mist1.position.set(0, 1, -80); mist1.renderOrder = -19; B0.add(mist1);
+  const mid2 = tiles(tMid, 62, 3, { haze: 0.32 }, -10, -3.5, -68, -18.5, -1)[1]; mid2.name = 'L2 far pines';
+  const mid = tiles(tMid, 54, 3, { haze: 0.14 }, 8, -3, -55, -18)[1]; mid.name = 'L3 mid pines';
   const mist2 = mist1.clone(); mist2.material = mist1.material.clone(); mist2.material.uniforms.uHaze = U.haze; mist2.material.uniforms.uTime = U.time; mist2.material.uniforms.uOpacity.value = 0.5;
-  mist2.scale.set(0.6, 0.55, 1); mist2.position.set(0, -2.5, -40); mist2.renderOrder = -17; root.add(mist2); plane(mist2, 1.5, 0);
+  mist2.scale.set(0.6, 0.55, 1); mist2.position.set(0, -1.5, -40); mist2.renderOrder = -17; B0.add(mist2);
 
   // ground: a painted moss floor fading into the haze
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(220, 120), new THREE.ShaderMaterial({ uniforms: { uHaze: U.haze, uA: { value: C(0x37562b) }, uB: { value: C(0x7b9a47) } }, vertexShader: S.groundVert, fragmentShader: S.groundFrag, depthWrite: false }));
@@ -252,7 +262,10 @@ async function build() {
   B0.add(shafts);
 
   // ----- the log house: smooth logs with notched corners, painted bark, log ends, moss roof -----
-  const house = new THREE.Group(); house.position.set(0.35, -0.62, -4); house.rotation.y = -0.52; B0.add(house);
+  const house = new THREE.Group(); house.position.set(0.35, -0.62, -4); house.rotation.y = -0.52; B0.add(house); house.name = 'L4 house';
+  onLayout(() => { house.scale.setScalar(subjK()); B0.position.set(0, 0, 0); });
+  centre(house, 0, (dx, dy) => { B0.position.x += dx; B0.position.y += dy; const fg = B0.userData.fg; if (fg) fg.position.set(-B0.position.x, -B0.position.y, 0);
+    house.updateWorldMatrix(true, true); const hb = new THREE.Box3().setFromObject(house); hb.min.sub(B0.position); hb.max.sub(B0.position); hb.min.y -= root.position.y; hb.max.y -= root.position.y; B0.userData.layoutGrass?.(hb); });
   const R = 0.15, W = 3.8, D = 2.9, NL = 9;
   const logGeo = new THREE.CylinderGeometry(R, R, 1, 24, 1, true); logGeo.rotateZ(Math.PI / 2);
   const logs = []; const ends = [];
@@ -354,61 +367,68 @@ async function build() {
 
   // ----- foreground framing (beat 0): real-geometry hero leaves + alpha-tested painted cards -----
   const fgGroup = new THREE.Group(); B0.add(fgGroup);
+  { const m5 = new THREE.Object3D(); m5.name = 'L5 near plants'; m5.position.set(0, -1, 2.4); const m6 = new THREE.Object3D(); m6.name = 'L6 frame'; m6.position.set(0, -1, 5.2); fgGroup.add(m5, m6); }
   const leafGeo = new THREE.PlaneGeometry(1, 1, 10, 10); leafGeo.translate(0, 0.5, 0);
   const mk = (t, n, o) => { const g = leafGeo.clone(); g.scale(1, t.userData.aspect, 1); const m = new THREE.InstancedMesh(g, cardMat(t, { cut: 0.5, ...o }), n); m.frustumCulled = false; fgGroup.add(m); return m; };
-  const mon = mk(tMon, 4, { sway: 0.05, rustle: 0.07, bend: 0.35 });
-  const palm = mk(tPalm, 3, { sway: 0.06, rustle: 0.08, bend: 0.15 });
-  const fern = mk(tFern, LOW ? 7 : 9, { sway: 0.05, rustle: 0.06 });
-  const grass = mk(tGrass, LOW ? 44 : 64, { sway: 0.05, rustle: 0.05 });
+  // plant masses: few, big and simple (notes/style.md), framing the lower corners like the bracken under real pines
+  const masses = [mk(tMass1, 3, { sway: 0.012, rustle: 0.0 }), mk(tMass2, 3, { sway: 0.012, rustle: 0.0 })];
   const bough = mk(tBough, 2, { sway: 0.07, rustle: 0.06, hang: 1 });
-  const bigPine = mk(tPine, 2, { sway: 0.015 }); // was tint 0x6f7468 x 0.8 = 35% light: read as a flat black blob
+  const bigPine = mk(tPine, 2, { sway: 0.015 });
+  // long grass: one instanced draw of alpha-tested painted clumps that live in the world, not in the frame
+  const lgGeo = new THREE.PlaneGeometry(1, 1, 1, 4); lgGeo.translate(0, 0.5, 0); lgGeo.scale(1, tLong.userData.aspect, 1);
+  const NG = LOW ? 320 : 460;
+  const lg = new THREE.InstancedMesh(lgGeo, cardMat(tLong, { cut: 0.45, sway: 0.09, rustle: 0.05, bend: 0.6 }), NG); lg.frustumCulled = false; lg.name = 'longgrass'; B0.add(lg);
   const floor = card(tGround, 1, { cut: 0.5, tint: 0xb9b2a0 }); floor.geometry = leafGeo.clone(); floor.geometry.scale(1, tGround.userData.aspect, 1);
-  const floorMesh = new THREE.InstancedMesh(floor.geometry, floor.material, 3); floorMesh.frustumCulled = false; // dirt cards had hard painted edges; grass + moss ground replace them
-  // plane values (see notes/composition.md): near frame ~0.55, foreground plants ~0.7, subject plane full light
-  const PLANE = { mon: 0.74, palm: 0.7, fern: 0.76, bough: 0.62, bigPine: 1 };
+  const floorMesh = new THREE.InstancedMesh(floor.geometry, floor.material, 3); floorMesh.frustumCulled = false;
+  const PLANE = { mass: 1.25, bough: 0.62, bigPine: 1 };
   const tint = (m, i, k, h = 0) => { const v = k * (PLANE[m.name] ?? 1); m.setColorAt(i, new THREE.Color().setRGB(v, v * 1.0, v * 0.98).lerp(PAL[0].haze, h)); };
-  Object.entries({ mon, palm, fern, grass, bough, bigPine, floorMesh }).forEach(([k, m]) => (m.name = k));
+  masses.forEach((m) => (m.name = 'mass')); bough.name = 'bough'; bigPine.name = 'bigPine'; floorMesh.name = 'floorMesh';
+  const GROUND = -0.66;
   onLayout(() => {
-    // positions are relative to what the camera sees at each depth, so phones keep the frame
+    // frame pieces are placed in camera terms; fgGroup cancels the centring shift of B0 so they stay on the edges
     const at = (z) => { const d = 10 - z; const H = vh(d); return { H, Wd: H * camera.aspect, d }; };
     let a = at(5.2); const bot = -a.H / 2;
-    const narrow = camera.aspect < 0.8;
-    const sx = (f) => f * a.Wd / 2;
-    mon.setMatrixAt(0, mat(sx(-0.92), bot - 0.25, 5.2, 1.5, 1.5, 1, -0.1, 0.4, 0.35)); tint(mon, 0, 0.82);
-    mon.setMatrixAt(1, mat(sx(-0.55), bot - 0.45, 5.4, 1.2, 1.2, 1, -0.2, -0.3, -0.12)); tint(mon, 1, 0.92);
-    mon.setMatrixAt(2, mat(sx(0.95), bot - 0.3, 5.0, 1.3, 1.3, 1, -0.1, -0.5, -0.45)); tint(mon, 2, 0.78);
-    mon.setMatrixAt(3, mat(sx(-0.2), bot - 0.75, 5.8, 0.9, 0.9, 1, -0.3, 0.2, 0.1)); tint(mon, 3, 0.7);
-    palm.setMatrixAt(0, mat(sx(0.62), bot - 0.25, 4.6, 1.9, 1.9, 1, 0, -0.2, -0.1)); tint(palm, 0, 0.86);
-    palm.setMatrixAt(1, mat(sx(-0.98), bot + 0.0, 3.2, 2.2, 2.2, 1, 0, 0.3, 0.2)); tint(palm, 1, 0.92, 0.08);
-    palm.setMatrixAt(2, mat(sx(1.05), bot + 0.1, 2.6, 2.4, 2.4, 1, 0, -0.3, -0.15)); tint(palm, 2, 0.95, 0.12);
-    for (let i = 0; i < fern.count; i++) { const f = -1 + (2 * i) / (fern.count - 1); const z = 3.4 - (i % 3) * 0.7; const b = at(z); fern.setMatrixAt(i, mat(f * b.Wd * 0.48, -b.H / 2 - 0.15 + (i % 2) * 0.1, z, 1.5 + (i % 3) * 0.3, 1.4, 1, 0, 0, f * -0.15)); tint(fern, i, 0.95 - (i % 3) * 0.06, 0.05 * (i % 3)); }
-    // grass: half frames the bottom edge, half grows around the house and the path (fixed world spots, same on every screen)
-    const gr = mulberry(77); const nFront = Math.round(grass.count * 0.34), nMead = Math.round(grass.count * 0.36);
-    for (let i = 0; i < grass.count; i++) {
-      if (i < nFront) { const f = -1 + (2 * i) / (nFront - 1) + (gr() - 0.5) * 0.1; const z = 4.4 - (i % 4) * 0.9; const b = at(z); grass.setMatrixAt(i, mat(f * b.Wd * 0.52, -b.H / 2 - 0.08, z, 1.0 + gr() * 0.35, 0.95 + gr() * 0.35, 1, 0, 0, 0)); tint(grass, i, 0.7 + (i % 4) * 0.06, 0.03 * (i % 4)); }
-      else if (i < nFront + nMead) { // meadow: tufts spread over the open lawn, spread to the visible width at each depth
-        // the camera sits low (y 0, ground -0.62), so the open lawn on screen is the ground between z 1 and 6.5
-        const c = (i - nFront) % 7; const cz = 1.2 + ((c * 0.618) % 1) * 5.0; const cxf = ((c * 0.381 + 0.13) % 1) * 2 - 1;
-        const z = cz + (gr() - 0.5) * 0.9; const b = at(z); const x = cxf * b.Wd * 0.5 + (gr() - 0.5) * b.Wd * 0.16; const sc = 0.22 + gr() * 0.36;
-        grass.setMatrixAt(i, mat(x, -0.66, z, sc * 1.25, sc, 1, 0, 0, 0)); tint(grass, i, 0.97, 0.04 + (6.5 - z) * 0.02); }
-      else { const k = i - nFront - nMead, n = grass.count - nFront - nMead; const front = k % 3 === 0; const x = front ? -1.6 + gr() * 4.2 : -7 + (14 * k) / (n - 1) + (gr() - 0.5) * 1.2; const z = front ? -2.1 - gr() * 0.9 : -1.5 - gr() * 6.5; const sc = 0.75 + gr() * 0.45; grass.setMatrixAt(i, mat(x, -0.66, z, sc * 1.25, sc, 1, 0, 0, 0)); tint(grass, i, 0.94, 0.1 + (-z / 8) * 0.18); }
-    }
+    const sx = (f) => f * a.Wd / 2; const mk2 = THREE.MathUtils.clamp(camera.aspect / 1.6, 0.55, 1);
+    const ms = (t) => 2.0 * mk2; // mass width in world units at z 5.2
+    const [m1, m2] = masses;
+    m1.setMatrixAt(0, mat(sx(-0.9), bot - 0.32, 5.2, ms() * 1.5, ms() * 1.5, 1)); tint(m1, 0, 0.62);
+    m2.setMatrixAt(0, mat(sx(0.92), bot - 0.3, 5.0, -ms() * 1.3, ms() * 1.3, 1)); tint(m2, 0, 0.66);
+    m1.setMatrixAt(1, mat(sx(0.55), bot - 0.55, 5.6, -ms(), ms(), 1)); tint(m1, 1, 0.56);
+    const b3 = at(2.4); m2.setMatrixAt(1, mat(-b3.Wd * 0.47, -b3.H / 2 - 0.1, 2.4, ms() * 1.2, ms() * 1.2, 1)); tint(m2, 1, 0.82, 0.05);
+    m2.setMatrixAt(2, mat(b3.Wd * 0.5, -b3.H / 2 - 0.05, 2.2, -ms() * 1.05, ms() * 1.05, 1)); tint(m2, 2, 0.85, 0.06);
+    m1.setMatrixAt(2, mat(-b3.Wd * 0.12, -b3.H / 2 - 0.9, 2.6, ms() * 0.8, ms() * 0.8, 1)); tint(m1, 2, 0.8, 0.05);
     a = at(6.5);
-    // hanging boughs only tuck into the top corners (they were covering the house)
-    // boughs scale with screen width so on a phone they stay in the corners and never cover the house
-    const bk = THREE.MathUtils.clamp(camera.aspect / 1.6, 0.42, 1);
+    const bk = THREE.MathUtils.clamp(camera.aspect / 1.6, 0.7, 1); // the boughs sit behind the nav, so white marks read on dark needles
     bough.setMatrixAt(0, mat(-a.Wd * 0.52, a.H / 2 + 0.02, 6.5, 0.8 * bk, -0.8 * bk, 1, 0, 0, 0.35)); tint(bough, 0, 0.9);
     bough.setMatrixAt(1, mat(a.Wd * 0.56, a.H / 2 + 0.05, 6.4, -0.62 * bk, -0.62 * bk, 1, 0, 0, -0.3)); tint(bough, 1, 0.86);
-    // framing trunks: on a narrow screen they shrink a little and step further out, so only trunk and outer
-    // branches frame the edges (their low limbs were hanging across the house on phone)
     const p = at(3.5); const nk = THREE.MathUtils.clamp((camera.aspect - 0.45) / 1.15, 0, 1); const ps = (18 / tPine.userData.aspect) * (0.72 + 0.28 * nk);
     bigPine.setMatrixAt(0, mat(-p.Wd / 2 - (0.7 + 1.3 * (1 - nk)), -p.H / 2 - 1, 3.5, ps, ps, 1)); tint(bigPine, 0, 0.66);
     bigPine.setMatrixAt(1, mat(p.Wd / 2 + (1.35 + 1.0 * (1 - nk)), -p.H / 2 - 1.2, 3.0, ps * 1.05, ps * 1.05, 1)); tint(bigPine, 1, 0.62);
-    const g1 = at(-1.2), g2 = at(1.6);
+    const g2 = at(1.6);
     floorMesh.setMatrixAt(0, mat(-2.2, -0.9, -1.2, 9, 3, 1)); floorMesh.setMatrixAt(1, mat(3.8, -1.0, -1.6, 8, 2.6, 1)); floorMesh.setMatrixAt(2, mat(0, -g2.H / 2 + 0.25, 1.6, Math.max(10, g2.Wd * 1.3), 4, 1));
     tint(floorMesh, 0, 0.9, 0.1); tint(floorMesh, 1, 0.9, 0.12); tint(floorMesh, 2, 0.78);
-    for (const m of [mon, palm, fern, grass, bough, bigPine, floorMesh]) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
+    for (const m of [...masses, bough, bigPine, floorMesh]) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
   });
+  // grass is laid after centring (it needs the house's place on screen): tall everywhere, but never over the house.
+  // A clump at camera distance d may rise only to the sight line from the camera to the house's foot, so it can never cover it.
+  B0.userData.layoutGrass = (hb) => {
+    const gr = mulberry(91); const camY = -B0.position.y; // camera height in B0 space at rest
+    for (let i = 0; i < NG; i++) {
+      // spread over the whole visible floor, denser near the camera; fixed world spots, same on every screen
+      const t = i / NG; const z = 6.6 - Math.pow(gr(), 0.8) * 15.5; const d = 10 - z; const half = vh(d) * Math.max(camera.aspect, 0.9) * 0.62;
+      const x = (gr() * 2 - 1) * half + B0.position.x * -1;
+      let h = THREE.MathUtils.lerp(0.45, 1.35, gr()) * THREE.MathUtils.clamp(d / 9, 0.55, 1.25);
+      // the house: no clump inside its footprint, and in front of it each clump stays under the camera-to-foot sight line
+      const inX = x > hb.min.x - 0.5 && x < hb.max.x + 0.5;
+      if (inX && z > hb.min.z - 0.3 && z < hb.max.z + 0.3) { h *= 0.18; }
+      else if (inX && z >= hb.max.z) { const dh = 10 - hb.max.z; const lim = (camY - GROUND) * (1 - d / dh) - 0.05; h = Math.min(h, Math.max(0.12, lim)); }
+      const w = h / tLong.userData.aspect * (1.1 + gr() * 0.5) * (gr() < 0.5 ? -1 : 1);
+      const far = THREE.MathUtils.clamp((-z) / 9, 0, 1);
+      lg.setMatrixAt(i, mat(x, GROUND - 0.04, z, w, h / tLong.userData.aspect, 1, 0, (gr() - 0.5) * 0.6, (gr() - 0.5) * 0.12));
+      const v = THREE.MathUtils.lerp(0.95, 0.82, gr()) * (z > 3 ? 0.78 : 1); lg.setColorAt(i, new THREE.Color().setRGB(v, v, v * 0.97).lerp(PAL[0].haze, 0.04 + far * 0.3));
+    }
+    lg.instanceMatrix.needsUpdate = true; lg.instanceColor.needsUpdate = true;
+  };
 
   // ----- hit proxies -----
   const houseHit = new THREE.Mesh(new THREE.BoxGeometry(W + 0.8, wallTop + ridgeH + 1.2, D + 1.8), new THREE.MeshBasicMaterial()); houseHit.visible = false; houseHit.position.y = (wallTop + ridgeH) / 2; house.add(houseHit);
@@ -464,7 +484,7 @@ async function build() {
     scat.copy(pt ?? V.set(0, 0.6, -2)); scatT = U.time.value; rustleKick = 1; Sound.play('sparkle', 0.32); if (pt && pt.z > 1) Sound.play('wings', 0.28);
   };
   B0.userData.fireflyPt = (p) => { scat.copy(p); scatT = U.time.value - 0.15; };
-  B0.userData.mats = { fg: [mon, palm, fern, grass, bough].map((m) => m.material) };
+  B0.userData.mats = { fg: [...masses.map((m) => m.material), bough.material, lg.material] }; B0.userData.fg = fgGroup;
   return { glowT, puffT };
 }
 
@@ -496,10 +516,10 @@ async function buildBalloon(glowT) {
     ['big', -30, -0.5, 0.15, 0.42, 1.5, 1.1, -14.8, 0.12, 1, 0.65],
     ['s3', -26, 0.55, 0.4, 0.3, 1.5, 1.1, -14.7, 0.12, -1, 0.65],
     // beat 2: above the clouds at night. a sea of cloud below the letter, small clouds low at the sides
-    ['sea', -60, 0.0, -0.62, 0.5, 2, 1.3, -16.5, 0.08, -1, 0.6],
-    ['tri', -40, 0.0, -0.9, 0.3, 2, 1.35, -14.5, 0.05, 1, 0.6],
-    ['s2', -30, -0.8, -0.3, 0.14, 2, 1.35, -14.2, 0.06, -1, 0.6],
-    ['s0', -28, 0.82, -0.4, 0.13, 2, 1.35, -14.1, 0.06, 1, 0.6],
+    ['sea', -30, 0.0, -0.62, 0.5, 2, 1.3, -16.5, 0.08, -1, 0.6],
+    ['tri', -26, 0.0, -0.9, 0.3, 2, 1.35, -14.5, 0.05, 1, 0.6],
+    ['s2', -22, -0.8, -0.3, 0.14, 2, 1.35, -14.2, 0.06, -1, 0.6],
+    ['s0', -21, 0.82, -0.4, 0.13, 2, 1.35, -14.1, 0.06, 1, 0.6],
     ['s3', 2.8, 1.06, -1.04, 0.36, 2, 'near', 20, 0, -1, 0.7],
   ];
   const fg = [];
@@ -509,7 +529,8 @@ async function buildBalloon(glowT) {
   }
 
   const bal = new THREE.Group(); bal.position.set(0.2, BEAT + 0.3, -4); B1.add(bal);
-  let balY = BEAT + 0.3; onLayout(() => { const n = camera.aspect < 0.8; balY = BEAT + (n ? 0.75 : 0.45); bal.position.x = n ? 0.15 : 1.1; });
+  let balY = BEAT + 0.3; onLayout(() => { bal.scale.setScalar(subjK()); bal.position.set(0, BEAT, -4); });
+  centre(bal, 1, (dx, dy) => { bal.position.x += dx; balY = bal.position.y + dy; bal.position.y = balY; });
   const prof = [];
   const N = 56;
   for (let i = 0; i <= N; i++) {
@@ -576,8 +597,9 @@ async function buildLetter() {
     vertexShader: S.letterVert, fragmentShader: S.letterFrag, side: THREE.DoubleSide,
   });
   const letter = new THREE.Mesh(geo, m);
-  const holder = new THREE.Group(); holder.position.set(0, BEAT * 2 + 1.25, -2); holder.add(letter); B2.add(holder);
-  let letY = BEAT * 2 + 1.25; onLayout(() => { const n = camera.aspect < 0.8; letY = BEAT * 2 + (n ? 1.55 : 1.3); holder.scale.setScalar(n ? 1.3 : 1.35); });
+  const holder = new THREE.Group(); holder.position.set(0, BEAT * 2, -4); holder.add(letter); B2.add(holder);
+  let letY = BEAT * 2; onLayout(() => { holder.scale.setScalar(1.35 * subjK()); holder.position.set(0, BEAT * 2, -4); });
+  centre(holder, 2, (dx, dy) => { holder.position.x += dx; letY = holder.position.y + dy; holder.position.y = letY; });
   letter.rotation.set(-0.12, 0.18, 0.06);
   const hit = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 3.4), new THREE.MeshBasicMaterial()); hit.visible = false; holder.add(hit);
   const tilt = new THREE.Vector2(), tiltV = new THREE.Vector2(), tiltT = new THREE.Vector2(); let flut = 0, hov = 0;
@@ -606,6 +628,8 @@ function resize() {
   // keep a wide-lens feel on desktop, open the view up on tall phones so the subjects fit
   camera.fov = camera.aspect < 0.62 ? 56 : camera.aspect < 1 ? 48 : 40;
   camera.updateProjectionMatrix();
+  // the crane scales with the view, so the forest clears and the cloud sea stays hidden on every screen shape
+  { const k = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / Math.tan(THREE.MathUtils.degToRad(20)); CAM_Y[1] = 46 * k; CAM_Y[2] = 80 * k; }
   renderer.setSize(w, h, false);
   U.aspect.value = camera.aspect;
   const pxPerUnitAt14 = (h * DPR) / vh(14);
@@ -613,7 +637,7 @@ function resize() {
   for (const m of lineMats) m.uniforms.uWidth.value = m.userData.base * Math.max(0.7, Math.min(1.6, 90 / pxPerUnitAt14));
   const px = (h * DPR) / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
   scene.traverse((o) => { if (o.material?.uniforms?.uPx) o.material.uniforms.uPx.value = px; });
-  layoutFns.forEach((f) => f());
+  layoutFns.forEach((f) => f()); layoutSubjects();
   splitLines();
 }
 
@@ -693,7 +717,8 @@ function inFooter() { return scrollY > document.querySelector('.sheet').offsetHe
 
 // ========== loop ==========
 let forced = null; // test hook: hold the pointer at the tilt limit
-const B0_DROP = 26, PTR_X = 0.32, PTR_Y = 0.16;
+const navEl = document.querySelector('header'); let navDark = true;
+const PTR_X = 0.32, PTR_Y = 0.16; const ptrV = new THREE.Vector2();
 let P = 0, Psm = 0, last = performance.now(), running = true, frames = 0, slowFrames = 0, built = false;
 const stage = $('#stage');
 const col = new THREE.Color();
@@ -704,7 +729,7 @@ function lerpPal(key, p) {
 function frame(now) {
   requestAnimationFrame(frame);
   lenis.raf(now);
-  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const dt = window.__freeze ? 0 : Math.min(0.05, (now - last) / 1000); last = now; // __freeze: test hook for still frames
   if (!built || !running || document.hidden) return;
   const H = stageH || innerHeight;
   const y = lenis.animatedScroll ?? scrollY;
@@ -713,22 +738,22 @@ function frame(now) {
   const p = Math.min(2, Psm);
   if (!reduce) U.time.value += dt;
   // the scene moves, the camera stays: scroll lifts everything by one beat per screen
-  root.position.y = -p * BEAT - (Psm - p) * 4;
+  root.position.y = -camY(p) - (Psm - p) * 4;
+  // nav tone follows the painted value behind it: dark forest and night take white, the light day sky takes ink
+  { const dark = p < 0.45 || p > 1.55; if (dark !== navDark) { navDark = dark; navEl?.classList.toggle('on-dark', dark); dispatchEvent(new Event('navtone')); } }
   // gentle camera parallax from mouse or touch drag, sprung
   if (forced) ptrT.set(forced[0], forced[1]);
-  ptrS.lerp(reduce ? ptrS.set(0, 0) : ptrT, Math.min(1, dt * 2.4));
+  // one critically damped spring: no overshoot, eases back to centre on release, nothing else pulls on it
+  if (reduce) { ptrS.set(0, 0); ptrV.set(0, 0); } else { const w = 4.2; ptrV.x += (w * w * (ptrT.x - ptrS.x) - 2 * w * ptrV.x) * dt; ptrV.y += (w * w * (ptrT.y - ptrS.y) - 2 * w * ptrV.y) * dt; ptrS.addScaledVector(ptrV, dt); }
   // the camera swings around the hero plane (z -4): the subject stays put, near planes move a little one way and far planes
   // a little the other. Travel is small so the framing plants and corner clouds can never reach the subject.
   camera.position.set(ptrS.x * PTR_X, ptrS.y * PTR_Y, 10);
-  camera.lookAt(0, 0, -4);
+  camera.lookAt(camera.position.x, camera.position.y + Math.tan(camTh(p)) * 14, -4);
   // palette, sky, stars
   U.haze.value.copy(lerpPal('haze', p)); U.warm.value.copy(lerpPal('warm', p)); U.cool.value.copy(lerpPal('cool', p)); U.ink.value.copy(lerpPal('ink', p));
   renderer.setClearColor(lerpPal('clear', p));
   const kN = THREE.MathUtils.smoothstep(p, 1.15, 1.9);
   for (const [m, base, amt] of nightCards) m.material.uniforms.uTint.value.copy(base).lerp(MOON, kN * amt);
-  updatePlanes(p);
-  // the forest leaves like a crane shot speeding up: one extra world drop for the whole beat (no fade, no switch)
-  beatGroups[0].position.y = -B0_DROP * THREE.MathUtils.smootherstep(p, 0.2, 1.0);
   skyMat.uniforms.uP.value = p; skyMat.uniforms.uStars.value = THREE.MathUtils.smoothstep(p, 1.2, 1.9);
   if (skyMat.uniforms.uSparkT.value >= 0) skyMat.uniforms.uSparkT.value += dt;
   // only the beats near the view do work
@@ -790,5 +815,5 @@ requestAnimationFrame(frame);
   await buildLetter();
   resize();
   renderer.compile(scene, camera);
-  window.__pines = { ready: true, renderer, scene, camera, lenis, LOW, GPU, forcePtr: (x, y) => { forced = x === null ? null : [x, y]; } };
+  window.__pines = { ready: true, THREE, renderer, scene, camera, lenis, LOW, GPU, forcePtr: (x, y) => { forced = x === null ? null : [x, y]; } };
 })().catch((e) => { console.error(e); stage.classList.add('ready'); built = true; });
